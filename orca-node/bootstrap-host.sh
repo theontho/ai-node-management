@@ -3,7 +3,7 @@ set -euo pipefail
 
 docker_version=29.1.3-0ubuntu3~24.04.2
 compose_version=2.40.3+ds1-0ubuntu1~24.04.1
-data_root=${1:-/data/orca-node}
+data_root=${1:-/srv/orca-node/state}
 workspace_root=${2:-/srv/orca-node/workspaces}
 
 (( EUID == 0 )) || {

@@ -40,17 +40,21 @@ encrypted Secret Service storage, and a deterministic health check.
 The default layout separates durable identity from replaceable work:
 
 ```text
-/data/orca-node/
+/srv/orca-node/state/
   orca-home/                 Orca configuration and managed account state
   secrets/orca-keyring-password
   secrets/tailscale-auth-key One-time or scoped Tailscale enrollment key
   tailscale/                 Persistent Tailscale node identity
 
 /srv/orca-node/workspaces/   Replaceable active repositories and worktrees
+  scratch/                   Default NVMe-backed Orca scratch project
 ```
 
-The default layout expects durable state under `/data` and active work under
-`/srv`. Override both paths for hosts with a different storage layout.
+The default layout keeps both durable state and active work under `/srv` on
+the system disk. A separately mounted `/data` volume is intentionally unused
+by the appliance so operators can use it for bulk downloads, ISO images,
+archives, or other capacity-oriented storage. Override either path for hosts
+with a different storage layout.
 
 ## Tailscale enrollment
 
@@ -97,7 +101,8 @@ and Compose packages when absent, builds the checksum-verified Orca image,
 starts the appliance, waits for both services to become healthy, discovers the
 container's tailnet IPv4 address unless `--pairing-address` was supplied,
 extracts Orca's pairing code, saves the remote environment in the local Orca
-app, and checks remote runtime status.
+app, checks remote runtime status, and registers an NVMe-backed `scratch`
+project for immediate use from desktop or mobile.
 
 After pairing succeeds, the deployer disables new pairing offers and force
 recreates only the Orca container. This removes the container log containing

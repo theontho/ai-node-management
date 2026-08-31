@@ -33,7 +33,7 @@ if command -v shellcheck >/dev/null 2>&1; then
 fi
 
 if command -v docker >/dev/null 2>&1; then
-  DATA_ROOT=/data/orca-node \
+  DATA_ROOT=/srv/orca-node/state \
   WORKSPACE_ROOT=/srv/orca-node/workspaces \
   TAILSCALE_AUTH_KEY_FILE=/tmp/tailscale-auth-key \
   ORCA_KEYRING_PASSWORD_FILE=/tmp/orca-keyring-password \

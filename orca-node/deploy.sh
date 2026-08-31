@@ -32,7 +32,7 @@ pairing_address=
 environment_name=
 tailscale_auth_key_file=
 orca_keyring_password_file="$SCRIPT_DIR/local/private/orca-keyring-password"
-data_root=/data/orca-node
+data_root=/srv/orca-node/state
 workspace_root=/srv/orca-node/workspaces
 
 while [[ "$#" -gt 0 ]]; do
@@ -264,6 +264,26 @@ done
   echo "Saved Orca environment did not reconnect after pairing was disabled" >&2
   exit 1
 }
+
+ssh -o BatchMode=yes "$ssh_target" bash -s -- "$workspace_root" <<'REMOTE'
+set -euo pipefail
+workspace_root=$1
+sudo install -d -o 1000 -g 1000 -m 0750 "$workspace_root/scratch"
+if ! sudo docker exec --user 1000 orca-node-orca-1 \
+  git -C /workspaces/scratch rev-parse --git-dir >/dev/null 2>&1; then
+  sudo docker exec --user 1000 orca-node-orca-1 \
+    git -C /workspaces/scratch init -b main
+fi
+REMOTE
+
+if ! orca repo list --environment "$environment_name" --json \
+  | python3 -c 'import json, sys; value=json.load(sys.stdin); raise SystemExit(not any(repo.get("path") == "/workspaces/scratch" for repo in value.get("result", {}).get("repos", [])))'
+then
+  orca repo add \
+    --environment "$environment_name" \
+    --path /workspaces/scratch \
+    --json
+fi
 
 printf 'Orca node %s is healthy and saved as environment %s.\n' \
   "$node_name" "$environment_name"

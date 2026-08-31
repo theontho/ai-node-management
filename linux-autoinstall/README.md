@@ -60,6 +60,11 @@ Set `DATA_DISK=` for a single-disk installation. The config file is trusted
 shell syntax, is sourced by the builder, and must not come from an untrusted
 download.
 
+The optional data disk is mounted but no service stores data there by default.
+Use it for bulk downloads, ISO images, archives, or other capacity-oriented
+files. Keep active agent workspaces and application state on the faster system
+disk unless local requirements say otherwise.
+
 `CONSOLE_IDLE_MINUTES` accepts 1 through 60. Console blanking wakes on a
 keypress. Full backlight/panel powerdown depends on support from the target's
 Linux console display driver; unsupported powerdown is logged while blanking
