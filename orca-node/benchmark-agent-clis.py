@@ -11,6 +11,7 @@ import resource
 import shutil
 import signal
 import subprocess
+import sys
 import time
 from dataclasses import dataclass
 
@@ -315,6 +316,9 @@ def tools(args: argparse.Namespace) -> list[Tool]:
     pi_binary = root / "pi-current/node_modules/.bin/pi"
     copilot_binary = root / "copilot/node_modules/.bin/copilot"
     moltis_binary = root / "moltis/moltis"
+    moltis_acp_client = pathlib.Path(__file__).resolve().with_name(
+        "moltis-acp-client.py"
+    )
 
     opencode_env = shared_env.copy()
     opencode_env["XDG_CONFIG_HOME"] = str(auth_root / "config")
@@ -382,21 +386,23 @@ def tools(args: argparse.Namespace) -> list[Tool]:
             ["--reasoning-effort", args.copilot_reasoning_effort]
         )
 
+    moltis_model = args.moltis_model
+    if args.moltis_thinking:
+        moltis_model = f"{moltis_model}@reasoning-{args.moltis_thinking}"
     moltis_command = [
+        sys.executable,
+        str(moltis_acp_client),
+        "--moltis-binary",
         str(moltis_binary),
-        "agent",
-        "--message",
-        PROMPT,
         "--config-dir",
         "{config}",
         "--data-dir",
         str(args.moltis_data_dir.resolve()),
-        "--bind",
-        "127.0.0.1",
-        "--no-tls",
+        "--cwd",
+        "{cwd}",
+        "--prompt",
+        PROMPT,
     ]
-    if args.moltis_thinking:
-        moltis_command.extend(["--thinking", args.moltis_thinking])
 
     return [
         Tool(
@@ -442,7 +448,7 @@ def tools(args: argparse.Namespace) -> list[Tool]:
         Tool(
             "moltis",
             moltis_binary,
-            f"{args.moltis_provider}/{args.moltis_model}",
+            f"{args.moltis_provider}/{moltis_model}",
             moltis_command,
             moltis_env,
             root / "moltis",
@@ -514,7 +520,7 @@ def main() -> int:
                     config,
                     fixture,
                     args.moltis_provider,
-                    args.moltis_model,
+                    moltis_model,
                     args.moltis_auth_config_dir.resolve(),
                 )
             placeholders = {

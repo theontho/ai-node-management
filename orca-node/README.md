@@ -209,9 +209,11 @@ python3 benchmark-agent-clis.py \
 by the live provider but not yet present in OpenCode's models.dev catalog. Do
 not use it to bypass provider-side model availability checks.
 
-Moltis is measured through its direct `moltis agent --message` one-shot
-interface, not as an always-running gateway. For each run, the script creates
-an isolated config that restricts native filesystem tools to that disposable
+Moltis 20260831.01's direct `moltis agent --message` command calls a legacy
+stub and cannot execute a real turn. The benchmark therefore uses
+`moltis-acp-client.py` to run one project-aware turn through Moltis's supported
+Agent Client Protocol stdio interface. For each run, the script creates an
+isolated config that restricts native filesystem tools to that disposable
 repository, disables interactive approvals and command sandboxing, pins one
 provider/model, and disables failover. Any persistent gateway idle RSS must be
 measured and reported separately from these terminal-style one-shot runs.
