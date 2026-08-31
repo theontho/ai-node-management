@@ -393,6 +393,7 @@ def main() -> int:
     if args.runs < 1:
         raise SystemExit("--runs must be at least 1")
 
+    args.output = args.output.resolve()
     args.output.mkdir(parents=True, exist_ok=True)
     benchmark_tools = tools(args)
     if args.only:
