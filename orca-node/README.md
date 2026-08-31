@@ -217,6 +217,8 @@ isolated config that restricts native filesystem tools to that disposable
 repository, disables interactive approvals and command sandboxing, pins one
 provider/model, and disables failover. Any persistent gateway idle RSS must be
 measured and reported separately from these terminal-style one-shot runs.
+`--moltis-thinking medium` selects Moltis's native
+`@reasoning-medium` provider-registry variant for the pinned model.
 
 The script never writes credential values to its JSON result or captured
 stdout/stderr files. Keep auth directories and benchmark results outside the
