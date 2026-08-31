@@ -169,7 +169,7 @@ __DATA_STORAGE_CONFIG__
     - install -D -m 0755 /cdrom/nocloud/assets/configure-swap /target/usr/local/sbin/configure-swap
     - curtin in-target --target=/target -- /usr/local/sbin/configure-swap prepare-only
     - install -D -m 0644 /cdrom/nocloud/assets/console-power.conf /target/etc/default/ai-node-console-power
-    - install -D -m 0755 /cdrom/nocloud/assets/configure-console-power /target/usr/local/sbin/configure-console-power
+    - install -D -m 0755 /cdrom/nocloud/assets/manage-console-backlight /target/usr/local/sbin/manage-console-backlight
     - install -D -m 0644 /cdrom/nocloud/assets/ai-node-console-power.service /target/etc/systemd/system/ai-node-console-power.service
     - install -D -m 0755 /cdrom/nocloud/assets/render-console-health /target/usr/local/sbin/render-console-health
     - install -D -m 0644 /cdrom/nocloud/assets/ai-node-console-health.service /target/etc/systemd/system/ai-node-console-health.service

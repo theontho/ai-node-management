@@ -1,0 +1,150 @@
+#!/usr/bin/env python3
+import glob
+import os
+from pathlib import Path
+import selectors
+import signal
+import time
+
+
+CONFIG = Path("/etc/default/ai-node-console-power")
+INPUT_KEYWORDS = ("keyboard", "mouse", "touchpad", "hotkeys")
+
+
+def load_idle_seconds() -> int:
+    values = {}
+    for raw_line in CONFIG.read_text().splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        key, separator, value = line.partition("=")
+        if not separator:
+            raise ValueError(f"invalid configuration line: {raw_line}")
+        values[key] = value
+    seconds = int(values["CONSOLE_IDLE_SECONDS"])
+    if not 10 <= seconds <= 3600:
+        raise ValueError("CONSOLE_IDLE_SECONDS must be from 10 through 3600")
+    return seconds
+
+
+def select_backlight() -> Path:
+    devices = sorted(Path("/sys/class/backlight").glob("*"))
+    if not devices:
+        raise RuntimeError("no Linux backlight device is available")
+    return devices[0]
+
+
+def input_name(event_path: str) -> str:
+    event = Path(event_path).name
+    name_path = Path("/sys/class/input") / event / "device/name"
+    try:
+        return name_path.read_text().strip()
+    except OSError:
+        return ""
+
+
+class Backlight:
+    def __init__(self, path: Path):
+        self.path = path
+        self.brightness_path = path / "brightness"
+        self.power_path = path / "bl_power"
+        self.saved_brightness = max(1, int(self.brightness_path.read_text()))
+        self.asleep = False
+
+    def sleep(self) -> None:
+        if self.asleep:
+            return
+        current = int(self.brightness_path.read_text())
+        if current > 0:
+            self.saved_brightness = current
+        self.brightness_path.write_text("0\n")
+        if self.power_path.exists():
+            self.power_path.write_text("4\n")
+        self.asleep = True
+
+    def wake(self) -> None:
+        if self.power_path.exists():
+            self.power_path.write_text("0\n")
+        self.brightness_path.write_text(f"{self.saved_brightness}\n")
+        self.asleep = False
+
+    def observe_awake_brightness(self) -> None:
+        if not self.asleep:
+            current = int(self.brightness_path.read_text())
+            if current > 0:
+                self.saved_brightness = current
+
+
+class InputMonitor:
+    def __init__(self):
+        self.selector = selectors.DefaultSelector()
+        self.open_paths = set()
+
+    def refresh(self) -> None:
+        current_paths = set(glob.glob("/dev/input/event*"))
+        for path in current_paths - self.open_paths:
+            name = input_name(path).lower()
+            if not any(keyword in name for keyword in INPUT_KEYWORDS):
+                continue
+            try:
+                descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+            except OSError:
+                continue
+            self.selector.register(descriptor, selectors.EVENT_READ, path)
+            self.open_paths.add(path)
+
+    def wait(self, timeout: float) -> bool:
+        events = self.selector.select(timeout)
+        activity = False
+        for key, _ in events:
+            try:
+                while os.read(key.fd, 4096):
+                    activity = True
+            except BlockingIOError:
+                pass
+            except OSError:
+                self.selector.unregister(key.fd)
+                os.close(key.fd)
+                self.open_paths.discard(key.data)
+        return activity
+
+
+def main() -> None:
+    idle_seconds = load_idle_seconds()
+    backlight = Backlight(select_backlight())
+    inputs = InputMonitor()
+    stopping = False
+    forced_wake = False
+
+    def stop(_signum, _frame):
+        nonlocal stopping
+        stopping = True
+
+    def wake(_signum, _frame):
+        nonlocal forced_wake
+        forced_wake = True
+
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+    signal.signal(signal.SIGUSR1, wake)
+
+    last_activity = time.monotonic()
+    try:
+        while not stopping:
+            inputs.refresh()
+            activity = inputs.wait(1.0)
+            if activity or forced_wake:
+                forced_wake = False
+                last_activity = time.monotonic()
+                if backlight.asleep:
+                    backlight.wake()
+            elif not backlight.asleep:
+                backlight.observe_awake_brightness()
+                if time.monotonic() - last_activity >= idle_seconds:
+                    backlight.sleep()
+    finally:
+        backlight.wake()
+
+
+if __name__ == "__main__":
+    main()

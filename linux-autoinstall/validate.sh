@@ -7,7 +7,11 @@ trap 'find "$work" -depth -delete' EXIT
 
 for script in "$SCRIPT_DIR"/*.sh "$SCRIPT_DIR"/assets/*; do
   [[ -x "$script" || "$script" == *.sh ]] || continue
-  bash -n "$script"
+  if head -n 1 "$script" | grep -Fq 'python'; then
+    PYTHONPYCACHEPREFIX="$work/pycache" python3 -m py_compile "$script"
+  else
+    bash -n "$script"
+  fi
 done
 PYTHONPYCACHEPREFIX="$work/pycache" python3 -m py_compile \
   "$SCRIPT_DIR/render-autoinstall.py"
@@ -58,9 +62,11 @@ if "disk-data" not in dual or 'path: "/srv/data"' not in dual:
     raise SystemExit("dual: data-disk configuration missing")
 PY
 
-grep -Fq 'CONSOLE_IDLE_MINUTES=5' "$SCRIPT_DIR/config.example.env"
-grep -Fq 'setterm --blank "$CONSOLE_IDLE_MINUTES"' \
-  "$SCRIPT_DIR/assets/configure-console-power"
+grep -Fq 'CONSOLE_IDLE_SECONDS=60' "$SCRIPT_DIR/config.example.env"
+grep -Fq 'self.brightness_path.write_text("0\n")' \
+  "$SCRIPT_DIR/assets/manage-console-backlight"
+grep -Fq 'INPUT_KEYWORDS = ("keyboard", "mouse", "touchpad", "hotkeys")' \
+  "$SCRIPT_DIR/assets/manage-console-backlight"
 grep -Fq 'ai-node-console-power.service' "$SCRIPT_DIR/autoinstall.yaml.in"
 
 if command -v ruby >/dev/null 2>&1; then

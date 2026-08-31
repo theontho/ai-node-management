@@ -15,8 +15,8 @@ The installer:
 - grants the dedicated administrator audited passwordless sudo;
 - creates configurable swap with configurable swappiness;
 - advertises `<node-name>.local` through Avahi;
-- blanks the physical console after a configurable idle period and requests
-  display powerdown one minute later, waking on keyboard activity;
+- powers down the physical LCD backlight after a configurable idle period and
+  restores it on keyboard, touchpad, mouse, or hardware-hotkey activity;
 - displays a physical-console-only health banner refreshed every minute; and
 - writes an EFI completion marker so a still-attached USB defaults to booting
   the installed system instead of reinstalling it.
@@ -53,7 +53,7 @@ DATA_DISK=/dev/disk/by-id/data-disk-id
 DATA_MOUNT=/data
 SWAP_SIZE_GIB=16
 SWAPPINESS=10
-CONSOLE_IDLE_MINUTES=5
+CONSOLE_IDLE_SECONDS=60
 ```
 
 Set `DATA_DISK=` for a single-disk installation. The config file is trusted
@@ -65,10 +65,10 @@ Use it for bulk downloads, ISO images, archives, or other capacity-oriented
 files. Keep active agent workspaces and application state on the faster system
 disk unless local requirements say otherwise.
 
-`CONSOLE_IDLE_MINUTES` accepts 1 through 60. Console blanking wakes on a
-keypress. Full backlight/panel powerdown depends on support from the target's
-Linux console display driver; unsupported powerdown is logged while blanking
-remains active.
+`CONSOLE_IDLE_SECONDS` accepts 10 through 3600. The backlight daemon directly
+controls the first Linux backlight device and listens to input events without
+consuming them. It affects only the LCD; the CPU, networking, SSH, containers,
+and server workloads remain awake.
 
 Create these ignored files under `local/private/`, each containing one value:
 

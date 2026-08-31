@@ -66,7 +66,7 @@ set +a
 : "${DATA_MOUNT:=/data}"
 : "${SWAP_SIZE_GIB:=16}"
 : "${SWAPPINESS:=10}"
-: "${CONSOLE_IDLE_MINUTES:=10}"
+: "${CONSOLE_IDLE_SECONDS:=60}"
 
 [[ "$NODE_NAME" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]] || {
   echo "NODE_NAME must be a lowercase DNS label" >&2
@@ -103,9 +103,9 @@ fi
   echo "SWAPPINESS must be an integer from 0 through 100" >&2
   exit 1
 }
-[[ "$CONSOLE_IDLE_MINUTES" =~ ^[0-9]+$ ]] \
-  && (( CONSOLE_IDLE_MINUTES >= 1 && CONSOLE_IDLE_MINUTES <= 60 )) || {
-  echo "CONSOLE_IDLE_MINUTES must be an integer from 1 through 60" >&2
+[[ "$CONSOLE_IDLE_SECONDS" =~ ^[0-9]+$ ]] \
+  && (( CONSOLE_IDLE_SECONDS >= 10 && CONSOLE_IDLE_SECONDS <= 3600 )) || {
+  echo "CONSOLE_IDLE_SECONDS must be an integer from 10 through 3600" >&2
   exit 1
 }
 
@@ -171,8 +171,8 @@ for asset in \
   install -m 0644 "$SCRIPT_DIR/assets/$asset" "$seed/assets/$asset"
 done
 install -m 0755 "$SCRIPT_DIR/assets/configure-swap" "$seed/assets/configure-swap"
-install -m 0755 "$SCRIPT_DIR/assets/configure-console-power" \
-  "$seed/assets/configure-console-power"
+install -m 0755 "$SCRIPT_DIR/assets/manage-console-backlight" \
+  "$seed/assets/manage-console-backlight"
 
 python3 - \
   "$SCRIPT_DIR/assets/admin-sudoers.in" \
@@ -228,7 +228,7 @@ chmod 0755 "$seed/assets/render-console-health"
 printf 'SWAP_SIZE_GIB=%s\nSWAPPINESS=%s\n' "$SWAP_SIZE_GIB" "$SWAPPINESS" \
   > "$seed/assets/swap.conf"
 chmod 0644 "$seed/assets/swap.conf"
-printf 'CONSOLE_IDLE_MINUTES=%s\n' "$CONSOLE_IDLE_MINUTES" \
+printf 'CONSOLE_IDLE_SECONDS=%s\n' "$CONSOLE_IDLE_SECONDS" \
   > "$seed/assets/console-power.conf"
 chmod 0644 "$seed/assets/console-power.conf"
 

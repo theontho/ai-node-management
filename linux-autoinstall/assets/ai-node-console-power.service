@@ -1,11 +1,13 @@
 [Unit]
-Description=Configure idle blanking and powerdown for the physical console
-After=getty@tty1.service
+Description=Power down the idle LCD backlight and wake it on input
+After=systemd-udev-settle.service
+Wants=systemd-udev-settle.service
 
 [Service]
-Type=oneshot
-ExecStart=/usr/local/sbin/configure-console-power
-RemainAfterExit=yes
+Type=simple
+ExecStart=/usr/local/sbin/manage-console-backlight
+Restart=on-failure
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
