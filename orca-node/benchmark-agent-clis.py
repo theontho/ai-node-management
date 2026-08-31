@@ -307,6 +307,12 @@ def allocated_size(path: pathlib.Path) -> int:
     return int(result.stdout.split()[0]) * 1024
 
 
+def moltis_model_with_reasoning(args: argparse.Namespace) -> str:
+    if args.moltis_thinking:
+        return f"{args.moltis_model}@reasoning-{args.moltis_thinking}"
+    return args.moltis_model
+
+
 def tools(args: argparse.Namespace) -> list[Tool]:
     root = args.install_root.expanduser().resolve()
     auth_root = args.opencode_auth_root.resolve()
@@ -386,9 +392,7 @@ def tools(args: argparse.Namespace) -> list[Tool]:
             ["--reasoning-effort", args.copilot_reasoning_effort]
         )
 
-    moltis_model = args.moltis_model
-    if args.moltis_thinking:
-        moltis_model = f"{moltis_model}@reasoning-{args.moltis_thinking}"
+    moltis_model = moltis_model_with_reasoning(args)
     moltis_command = [
         sys.executable,
         str(moltis_acp_client),
@@ -520,7 +524,7 @@ def main() -> int:
                     config,
                     fixture,
                     args.moltis_provider,
-                    moltis_model,
+                    moltis_model_with_reasoning(args),
                     args.moltis_auth_config_dir.resolve(),
                 )
             placeholders = {
