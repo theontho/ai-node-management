@@ -12,6 +12,8 @@ The pinned components are:
 - Orca 1.4.192 from its official `stablyai/orca` AppImage release, verified by
   SHA-256 and extracted at build time for a FUSE-free container; and
 - Tailscale 1.102.3 for linux/amd64 by OCI manifest digest.
+- Python 3 with `venv` and `pip`, Node.js 22.23.2 with npm, GitHub Copilot CLI
+  1.0.82, and GitHub CLI 2.98.0 for agent workspace use.
 
 The Orca and Tailscale containers share one network namespace. Orca is
 therefore reachable through the Tailscale node without publishing its port on
@@ -150,3 +152,7 @@ Versions and digests are intentionally committed. Updating means changing the
 pins, building and testing the replacement, then rerunning `deploy.sh`.
 Rollback means restoring the previous pins and redeploying; persistent state
 is outside the images.
+
+The `gh` and `copilot` binaries are installed but do not embed an account or
+token. Authenticate them separately with a scoped node identity; never bake
+GitHub credentials into the image.

@@ -44,4 +44,13 @@ if command -v docker >/dev/null 2>&1; then
 fi
 
 git -C "$ROOT" diff --check
+
+grep -Fq 'ARG NODE_VERSION=22.23.2' "$ROOT/orca-node/Dockerfile"
+grep -Fq 'ARG COPILOT_CLI_VERSION=1.0.82' "$ROOT/orca-node/Dockerfile"
+grep -Fq 'ARG GH_VERSION=2.98.0' "$ROOT/orca-node/Dockerfile"
+grep -Fq 'python -m venv /tmp/python-smoke' "$ROOT/orca-node/Dockerfile"
+grep -Fq 'python-is-python3' "$ROOT/orca-node/Dockerfile"
+grep -Fq 'copilot --version' "$ROOT/orca-node/Dockerfile"
+grep -Fq 'gh --version' "$ROOT/orca-node/Dockerfile"
+
 echo "Repository validation passed."

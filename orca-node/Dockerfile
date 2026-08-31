@@ -3,6 +3,11 @@ FROM ubuntu:24.04@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a
 ARG ORCA_VERSION=1.4.192
 ARG ORCA_APPIMAGE_SHA256=9003e78c6c0287c5173569bc91529da4a9963b2d4245fd23701651799abca77c
 ARG UBUNTU_SNAPSHOT=20260829T000000Z
+ARG NODE_VERSION=22.23.2
+ARG NODE_LINUX_X64_SHA256=d60acfe00a2932254bb0ad20e01b0d74397a0875595de719654b214f4b03f307
+ARG COPILOT_CLI_VERSION=1.0.82
+ARG GH_VERSION=2.98.0
+ARG GH_LINUX_AMD64_SHA256=3b8ac6b30336802fc1a858d7c084e11cdf24ac1a761ca90b68022d7d729208de
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -57,9 +62,41 @@ RUN sed -i -E \
       libxtst6 \
       libsecret-tools \
       openssh-client \
+      python3 \
+      python3-pip \
+      python3-venv \
+      python-is-python3 \
       tini \
+      xz-utils \
       xvfb \
       zlib1g-dev \
+    && curl --fail --location --show-error --retry 3 \
+      "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
+      --output /tmp/node.tar.xz \
+    && echo "${NODE_LINUX_X64_SHA256}  /tmp/node.tar.xz" \
+      | sha256sum --check --strict \
+    && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 \
+    && rm -f /tmp/node.tar.xz \
+    && npm install --global --ignore-scripts=false \
+      "@github/copilot@${COPILOT_CLI_VERSION}" \
+    && npm cache clean --force \
+    && curl --fail --location --show-error --retry 3 \
+      "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz" \
+      --output /tmp/gh.tar.gz \
+    && echo "${GH_LINUX_AMD64_SHA256}  /tmp/gh.tar.gz" \
+      | sha256sum --check --strict \
+    && tar -xzf /tmp/gh.tar.gz -C /tmp \
+    && install -o root -g root -m 0755 \
+      "/tmp/gh_${GH_VERSION}_linux_amd64/bin/gh" /usr/local/bin/gh \
+    && rm -rf /tmp/gh.tar.gz "/tmp/gh_${GH_VERSION}_linux_amd64" \
+    && python --version \
+    && python -m venv /tmp/python-smoke \
+    && /tmp/python-smoke/bin/pip --version \
+    && rm -rf /tmp/python-smoke \
+    && node --version \
+    && npm --version \
+    && copilot --version \
+    && gh --version \
     && install -d -o root -g root -m 0755 /opt/orca \
     && curl --fail --location --show-error --retry 3 \
       "https://github.com/stablyai/orca/releases/download/v${ORCA_VERSION}/orca-linux.AppImage" \
@@ -98,6 +135,9 @@ ENV HOME=/home/orca \
 LABEL org.opencontainers.image.source="https://github.com/stablyai/orca" \
       org.opencontainers.image.version="${ORCA_VERSION}" \
       org.opencontainers.image.base.snapshot="20260829T000000Z" \
+      org.opencontainers.image.node.version="${NODE_VERSION}" \
+      org.opencontainers.image.copilot-cli.version="${COPILOT_CLI_VERSION}" \
+      org.opencontainers.image.gh.version="${GH_VERSION}" \
       org.opencontainers.image.description="Headless Orca runtime for a reproducible remote development node"
 
 USER orca
