@@ -115,6 +115,13 @@ operator scans or pastes the resulting mobile-scoped pairing offer. Pairing
 should then be disabled again so the offer is not retained in container logs.
 This appliance does not yet automate that temporary mobile-pairing cycle.
 
+To create a temporary mobile offer on an existing node, set
+`ORCA_PAIRING_ENABLED=true` and `ORCA_MOBILE_PAIRING=true` in
+`/opt/orca-node/node.env`, recreate only the Orca container, and read the
+mobile-scoped offer from its logs. After the phone accepts it, set both values
+back to `false` and recreate the Orca container again so the offer disappears
+from current container logs.
+
 Relay sign-in is a separate human account flow. The current headless CLI has
 commands for managed Claude and Codex accounts, but no command for signing the
 host into the Orca cloud account or enabling Relay. Orca's documented Relay

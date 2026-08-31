@@ -56,6 +56,7 @@ services:
       ORCA_KEYRING_PASSWORD_FILE: /run/secrets/orca-keyring-password
       ORCA_PAIRING_ADDRESS: ${ORCA_PAIRING_ADDRESS}
       ORCA_PAIRING_ENABLED: ${ORCA_PAIRING_ENABLED}
+      ORCA_MOBILE_PAIRING: ${ORCA_MOBILE_PAIRING:-false}
       ORCA_PORT: "6768"
       ORCA_PROJECT_ROOT: /workspaces
     volumes:

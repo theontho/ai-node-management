@@ -133,6 +133,7 @@ trap 'rm -f "$node_env"' EXIT
   printf 'NODE_NAME=%s\n' "$node_name"
   printf 'ORCA_PAIRING_ADDRESS=%s\n' "$pairing_address"
   printf 'ORCA_PAIRING_ENABLED=true\n'
+  printf 'ORCA_MOBILE_PAIRING=false\n'
   printf 'DATA_ROOT=%s\n' "$data_root"
   printf 'WORKSPACE_ROOT=%s\n' "$workspace_root"
   printf 'TAILSCALE_AUTH_KEY_FILE=%s/secrets/tailscale-auth-key\n' "$data_root"

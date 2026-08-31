@@ -7,6 +7,7 @@ orca_port=${ORCA_PORT:-6768}
 project_root=${ORCA_PROJECT_ROOT:-/workspaces}
 keyring_password_file=${ORCA_KEYRING_PASSWORD_FILE:-/run/secrets/orca-keyring-password}
 pairing_enabled=${ORCA_PAIRING_ENABLED:-true}
+mobile_pairing=${ORCA_MOBILE_PAIRING:-false}
 
 [[ -s "$keyring_password_file" ]] || {
   echo "Orca keyring password file is required" >&2
@@ -16,6 +17,14 @@ pairing_enabled=${ORCA_PAIRING_ENABLED:-true}
   echo "ORCA_PAIRING_ENABLED must be true or false" >&2
   exit 1
 }
+[[ "$mobile_pairing" == true || "$mobile_pairing" == false ]] || {
+  echo "ORCA_MOBILE_PAIRING must be true or false" >&2
+  exit 1
+}
+if [[ "$mobile_pairing" == true && "$pairing_enabled" == false ]]; then
+  echo "ORCA_MOBILE_PAIRING requires ORCA_PAIRING_ENABLED=true" >&2
+  exit 1
+fi
 
 mkdir -p \
   "$HOME/.cache" \
@@ -76,6 +85,9 @@ serve_args=(
 )
 if [[ "$pairing_enabled" == false ]]; then
   serve_args+=(--no-pairing)
+fi
+if [[ "$mobile_pairing" == true ]]; then
+  serve_args+=(--mobile-pairing)
 fi
 
 exec /opt/orca/squashfs-root/AppRun "${serve_args[@]}"
