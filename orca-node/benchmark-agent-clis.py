@@ -234,7 +234,7 @@ def prepare_moltis_config(
     provider: str,
     model: str,
     auth_config_dir: pathlib.Path,
-) -> pathlib.Path | None:
+) -> list[pathlib.Path]:
     path.mkdir()
     quoted_provider = json.dumps(provider)
     (path / "moltis.toml").write_text(
@@ -274,12 +274,15 @@ exact_model = true
 fallback_models = []
 """
     )
-    credential_source = auth_config_dir / "oauth_tokens.json"
-    if not credential_source.exists():
-        return None
-    credential_link = path / credential_source.name
-    credential_link.hardlink_to(credential_source)
-    return credential_link
+    runtime_links = []
+    for name in ("defaults.toml", "oauth_tokens.json"):
+        source = auth_config_dir / name
+        if not source.exists():
+            continue
+        link = path / name
+        link.hardlink_to(source)
+        runtime_links.append(link)
+    return runtime_links
 
 
 def fixture_passes(path: pathlib.Path) -> bool:
@@ -505,9 +508,9 @@ def main() -> int:
             fixture = tool_output / f"workspace-{run_number}"
             prepare_fixture(fixture)
             config = fixture / ".moltis-config"
-            credential_link = None
+            moltis_runtime_links: list[pathlib.Path] = []
             if tool.name == "moltis":
-                credential_link = prepare_moltis_config(
+                moltis_runtime_links = prepare_moltis_config(
                     config,
                     fixture,
                     args.moltis_provider,
@@ -525,8 +528,8 @@ def main() -> int:
                 tool_output / f"task-{run_number}",
                 args.timeout,
             )
-            if credential_link is not None:
-                credential_link.unlink()
+            for link in moltis_runtime_links:
+                link.unlink()
             measured["fixture_passed"] = fixture_passes(fixture)
             if run_number == 0:
                 entry["warmup"] = measured
