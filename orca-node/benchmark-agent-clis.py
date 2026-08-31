@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Benchmark local resource use for OpenCode, Pi, and GitHub Copilot CLI."""
+"""Benchmark local resource use for OpenCode, Pi, Copilot CLI, and Moltis."""
 
 from __future__ import annotations
 
@@ -77,13 +77,20 @@ def parse_args() -> argparse.Namespace:
         default=pathlib.Path(".pi-benchmark"),
     )
     parser.add_argument(
+        "--moltis-data-dir",
+        type=pathlib.Path,
+        default=pathlib.Path(".moltis-benchmark/data"),
+    )
+    parser.add_argument(
         "--only",
         action="append",
-        choices=("opencode", "pi", "copilot"),
+        choices=("opencode", "pi", "copilot", "moltis"),
         help="benchmark only the named CLI; repeat to select more than one",
     )
     parser.add_argument("--pi-provider", default="github-copilot")
     parser.add_argument("--pi-model", default="gpt-5-mini")
+    parser.add_argument("--moltis-provider", default="github-copilot")
+    parser.add_argument("--moltis-model", default="gpt-5-mini")
     return parser.parse_args()
 
 
@@ -205,6 +212,53 @@ def prepare_fixture(path: pathlib.Path) -> None:
     )
 
 
+def prepare_moltis_config(
+    path: pathlib.Path,
+    workspace: pathlib.Path,
+    provider: str,
+    model: str,
+) -> None:
+    path.mkdir()
+    quoted_provider = json.dumps(provider)
+    (path / "moltis.toml").write_text(
+        f"""\
+[providers]
+offered = [{json.dumps(provider)}]
+
+[providers.{quoted_provider}]
+enabled = true
+models = [{json.dumps(model)}]
+fetch_models = false
+
+[tools]
+agent_timeout_secs = 300
+agent_max_iterations = 25
+agent_max_auto_continues = 0
+
+[tools.fs]
+workspace_root = {json.dumps(str(workspace))}
+allow_paths = [{json.dumps(str(workspace) + "/**")}]
+require_approval = false
+respect_gitignore = true
+
+[tools.exec]
+approval_mode = "never"
+security_level = "permissive"
+
+[tools.exec.sandbox]
+mode = "off"
+
+[tools.policy]
+allow = ["Read", "Write", "Edit", "MultiEdit", "Glob", "Grep", "exec"]
+
+[failover]
+enabled = false
+exact_model = true
+fallback_models = []
+"""
+    )
+
+
 def fixture_passes(path: pathlib.Path) -> bool:
     result = subprocess.run(
         ["python3", "-m", "unittest", "discover", "-q"],
@@ -234,6 +288,7 @@ def tools(args: argparse.Namespace) -> list[Tool]:
     opencode_binary = root / "opencode/node_modules/.bin/opencode"
     pi_binary = root / "pi-current/node_modules/.bin/pi"
     copilot_binary = root / "copilot/node_modules/.bin/copilot"
+    moltis_binary = root / "moltis/moltis"
 
     opencode_env = shared_env.copy()
     opencode_env["XDG_CONFIG_HOME"] = str(auth_root / "config")
@@ -243,6 +298,15 @@ def tools(args: argparse.Namespace) -> list[Tool]:
     pi_env["PI_SKIP_VERSION_CHECK"] = "1"
     pi_env["PI_TELEMETRY"] = "0"
     pi_env["PI_CODING_AGENT_DIR"] = str(args.pi_auth_dir.resolve())
+
+    moltis_env = shared_env.copy()
+    moltis_library = root / "moltis/deps/usr/lib/x86_64-linux-gnu"
+    existing_library_path = moltis_env.get("LD_LIBRARY_PATH")
+    moltis_env["LD_LIBRARY_PATH"] = (
+        f"{moltis_library}:{existing_library_path}"
+        if existing_library_path
+        else str(moltis_library)
+    )
 
     return [
         Tool(
@@ -300,6 +364,26 @@ def tools(args: argparse.Namespace) -> list[Tool]:
             ],
             shared_env,
             root / "copilot",
+        ),
+        Tool(
+            "moltis",
+            moltis_binary,
+            f"{args.moltis_provider}/{args.moltis_model}",
+            [
+                str(moltis_binary),
+                "agent",
+                "--message",
+                PROMPT,
+                "--config-dir",
+                "{config}",
+                "--data-dir",
+                str(args.moltis_data_dir.resolve()),
+                "--bind",
+                "127.0.0.1",
+                "--no-tls",
+            ],
+            moltis_env,
+            root / "moltis",
         ),
     ]
 
@@ -360,8 +444,20 @@ def main() -> int:
         for run_number in range(0, args.runs + 1):
             fixture = tool_output / f"workspace-{run_number}"
             prepare_fixture(fixture)
+            config = fixture / ".moltis-config"
+            if tool.name == "moltis":
+                prepare_moltis_config(
+                    config,
+                    fixture,
+                    args.moltis_provider,
+                    args.moltis_model,
+                )
+            placeholders = {
+                "{cwd}": str(fixture),
+                "{config}": str(config),
+            }
             measured = run_measured(
-                [str(fixture) if part == "{cwd}" else part for part in tool.command],
+                [placeholders.get(part, part) for part in tool.command],
                 fixture,
                 tool.env,
                 tool_output / f"task-{run_number}",

@@ -159,27 +159,40 @@ GitHub credentials into the image.
 
 ## Comparing agent CLI overhead
 
-`benchmark-agent-clis.py` measures OpenCode, Pi, and Copilot CLI under the same
-Linux host, model, prompt, fixture repository, and three-run protocol. It
-records installed bytes, `--help` startup time and peak process-tree RSS, plus
-task wall time, CPU time, peak process-tree RSS, exit status, and an independent
-test result. Model and network time remain part of the task wall time, so use
-the startup measurements when comparing local CLI overhead.
-`install_bytes` covers the isolated npm prefix only; report runtime caches
-separately. In particular, Copilot's self-update cache under
+`benchmark-agent-clis.py` measures OpenCode, Pi, Copilot CLI, and Moltis under
+the same Linux host, model, prompt, fixture repository, and three-run protocol.
+It records installed bytes, `--help` startup time and peak process-tree RSS,
+plus task wall time, CPU time, peak process-tree RSS, exit status, and an
+independent test result. Model and network time remain part of the task wall
+time, so use the startup measurements when comparing local CLI overhead.
+`install_bytes` covers each isolated install prefix, including Moltis's local
+runtime libraries, but not shared runtime caches. In particular, Copilot's
+self-update cache under
 `~/.cache/copilot` can retain more than one platform payload.
 
 Install each CLI under its own npm prefix and authenticate it before running
-the benchmark. OpenCode and Pi require their benchmark-specific auth locations;
-Copilot uses its normal authenticated home:
+the benchmark. Moltis is not an npm CLI: install its pinned portable GNU/Linux
+binary as `moltis/moltis` under the benchmark install root and include any
+non-system shared libraries under
+`moltis/deps/usr/lib/x86_64-linux-gnu`. OpenCode and Pi require their
+benchmark-specific auth locations, Moltis requires an OAuth data directory,
+and Copilot uses its normal authenticated home:
 
 ```bash
 python3 benchmark-agent-clis.py \
   --output ./benchmark-results \
   --install-root ~/.local/share/cli-benchmark \
   --opencode-auth-root ./.cli-benchmark-auth \
-  --pi-auth-dir ./.pi-benchmark
+  --pi-auth-dir ./.pi-benchmark \
+  --moltis-data-dir ./.moltis-benchmark/data
 ```
+
+Moltis is measured through its direct `moltis agent --message` one-shot
+interface, not as an always-running gateway. For each run, the script creates
+an isolated config that restricts native filesystem tools to that disposable
+repository, disables interactive approvals and command sandboxing, pins one
+provider/model, and disables failover. Any persistent gateway idle RSS must be
+measured and reported separately from these terminal-style one-shot runs.
 
 The script never writes credential values to its JSON result or captured
 stdout/stderr files. Keep auth directories and benchmark results outside the
