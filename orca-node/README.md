@@ -184,6 +184,7 @@ python3 benchmark-agent-clis.py \
   --install-root ~/.local/share/cli-benchmark \
   --opencode-auth-root ./.cli-benchmark-auth \
   --pi-auth-dir ./.pi-benchmark \
+  --moltis-auth-config-dir ./.moltis-benchmark/config \
   --moltis-data-dir ./.moltis-benchmark/data
 ```
 

@@ -82,6 +82,11 @@ def parse_args() -> argparse.Namespace:
         default=pathlib.Path(".moltis-benchmark/data"),
     )
     parser.add_argument(
+        "--moltis-auth-config-dir",
+        type=pathlib.Path,
+        default=pathlib.Path(".moltis-benchmark/config"),
+    )
+    parser.add_argument(
         "--only",
         action="append",
         choices=("opencode", "pi", "copilot", "moltis"),
@@ -228,7 +233,8 @@ def prepare_moltis_config(
     workspace: pathlib.Path,
     provider: str,
     model: str,
-) -> None:
+    auth_config_dir: pathlib.Path,
+) -> pathlib.Path | None:
     path.mkdir()
     quoted_provider = json.dumps(provider)
     (path / "moltis.toml").write_text(
@@ -268,6 +274,12 @@ exact_model = true
 fallback_models = []
 """
     )
+    credential_source = auth_config_dir / "oauth_tokens.json"
+    if not credential_source.exists():
+        return None
+    credential_link = path / credential_source.name
+    credential_link.symlink_to(credential_source)
+    return credential_link
 
 
 def fixture_passes(path: pathlib.Path) -> bool:
@@ -493,12 +505,14 @@ def main() -> int:
             fixture = tool_output / f"workspace-{run_number}"
             prepare_fixture(fixture)
             config = fixture / ".moltis-config"
+            credential_link = None
             if tool.name == "moltis":
-                prepare_moltis_config(
+                credential_link = prepare_moltis_config(
                     config,
                     fixture,
                     args.moltis_provider,
                     args.moltis_model,
+                    args.moltis_auth_config_dir.resolve(),
                 )
             placeholders = {
                 "{cwd}": str(fixture),
@@ -511,6 +525,8 @@ def main() -> int:
                 tool_output / f"task-{run_number}",
                 args.timeout,
             )
+            if credential_link is not None:
+                credential_link.unlink()
             measured["fixture_passed"] = fixture_passes(fixture)
             if run_number == 0:
                 entry["warmup"] = measured
