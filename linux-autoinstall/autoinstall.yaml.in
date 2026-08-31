@@ -1,0 +1,180 @@
+#cloud-config
+autoinstall:
+  version: 1
+  interactive-sections: []
+  early-commands:
+    - |
+      pcsc_package=$(find /cdrom/pool/main/p/pcsc-lite -maxdepth 1 -name 'libpcsclite1_*_amd64.deb' -print -quit)
+      wpa_package=$(find /cdrom/pool/main/w/wpa -maxdepth 1 -name 'wpasupplicant_*_amd64.deb' -print -quit)
+      if [ -z "$pcsc_package" ] || [ -z "$wpa_package" ]; then
+        echo "Offline Wi-Fi packages are missing from the installer media." >&2
+        exit 1
+      fi
+      dpkg -i "$pcsc_package" "$wpa_package"
+    - |
+      wifi_interface=
+      for attempt in $(seq 1 30); do
+        for interface_path in /sys/class/net/*; do
+          if [ -d "$interface_path/wireless" ]; then
+            wifi_interface=${interface_path##*/}
+            break 2
+          fi
+        done
+        sleep 2
+      done
+      if [ -z "$wifi_interface" ]; then
+        echo "No wireless interface was detected after 60 seconds." >&2
+        exit 1
+      fi
+      system_disk=__SYSTEM_DISK_SHELL__
+      system_block=${system_disk##*/}
+      if [ ! -b "$system_disk" ] \
+        || [ ! -r "/sys/class/block/$system_block/removable" ] \
+        || [ "$(cat "/sys/class/block/$system_block/removable")" != "0" ]; then
+        echo "Configured system disk $system_disk is absent or removable." >&2
+        exit 1
+      fi
+__DATA_DISK_VALIDATION__
+      cat > /tmp/60-ai-node-wifi.yaml <<'EOF'
+      network:
+        version: 2
+        renderer: networkd
+        wifis:
+          "WIFI_BOOT":
+            dhcp4: true
+            optional: false
+            access-points:
+              __WIFI_SSID__:
+                password: __WIFI_PASSWORD__
+      EOF
+      sed -i "s/WIFI_BOOT/$wifi_interface/g" \
+        /autoinstall.yaml /tmp/60-ai-node-wifi.yaml
+  locale: en_US.UTF-8
+  keyboard:
+    layout: us
+    variant: ""
+  timezone: __TIMEZONE__
+  refresh-installer:
+    update: false
+  updates: all
+  proxy: null
+  codecs:
+    install: false
+  drivers:
+    install: true
+  oem:
+    install: false
+  source:
+    id: ubuntu-server
+    search_drivers: true
+  network:
+    version: 2
+    ethernets:
+      wired:
+        match:
+          name: "e*"
+        dhcp4: true
+        optional: true
+    wifis:
+      "WIFI_BOOT":
+        dhcp4: true
+        optional: false
+        access-points:
+          __WIFI_SSID__:
+            password: __WIFI_PASSWORD__
+  apt:
+    geoip: false
+    fallback: offline-install
+    preserve_sources_list: false
+  identity:
+    hostname: __NODE_NAME__
+    username: __ADMIN_USER__
+    password: __PASSWORD_HASH__
+  ssh:
+    install-server: true
+    allow-pw: true
+    authorized-keys:
+      - __SSH_PUBLIC_KEY__
+  packages:
+    - avahi-daemon
+    - libnss-mdns
+    - openssh-server
+    - wpasupplicant
+  storage:
+    swap:
+      size: 0
+    config:
+      - type: disk
+        id: disk-system
+        path: __SYSTEM_DISK_YAML__
+        ptable: gpt
+        wipe: superblock-recursive
+        preserve: false
+        grub_device: true
+      - type: partition
+        id: partition-bios-grub
+        device: disk-system
+        size: 2M
+        flag: bios_grub
+        number: 1
+        preserve: false
+        wipe: superblock
+      - type: partition
+        id: partition-efi
+        device: disk-system
+        size: 1G
+        flag: boot
+        grub_device: true
+        number: 2
+        preserve: false
+        wipe: superblock
+      - type: format
+        id: format-efi
+        volume: partition-efi
+        fstype: fat32
+        label: AI_NODE_EFI
+        preserve: false
+      - type: mount
+        id: mount-efi
+        device: format-efi
+        path: /boot/efi
+      - type: partition
+        id: partition-root
+        device: disk-system
+        size: -1
+        number: 3
+        preserve: false
+        wipe: superblock
+      - type: format
+        id: format-root
+        volume: partition-root
+        fstype: ext4
+        label: ai-node-root
+        preserve: false
+      - type: mount
+        id: mount-root
+        device: format-root
+        path: /
+__DATA_STORAGE_CONFIG__
+  shutdown: reboot
+  late-commands:
+    - install -D -m 0440 /cdrom/nocloud/assets/admin-sudoers /target/etc/sudoers.d/90-ai-node-admin
+    - install -D -m 0644 /cdrom/nocloud/assets/apt-noninteractive.conf /target/etc/apt/apt.conf.d/90-ai-node-noninteractive
+    - install -D -m 0600 /cdrom/nocloud/assets/debconf-selections /target/tmp/ai-node-debconf-selections
+    - curtin in-target --target=/target -- debconf-set-selections /tmp/ai-node-debconf-selections
+    - rm -f /target/tmp/ai-node-debconf-selections
+    - install -D -m 0600 /tmp/60-ai-node-wifi.yaml /target/etc/netplan/60-ai-node-wifi.yaml
+    - install -D -m 0644 /cdrom/nocloud/assets/ssh-access.conf /target/etc/ssh/sshd_config.d/90-ai-node.conf
+    - install -D -m 0644 /cdrom/nocloud/assets/swap.conf /target/etc/default/ai-node-swap
+    - install -D -m 0755 /cdrom/nocloud/assets/configure-swap /target/usr/local/sbin/configure-swap
+    - curtin in-target --target=/target -- /usr/local/sbin/configure-swap prepare-only
+    - install -D -m 0755 /cdrom/nocloud/assets/render-console-health /target/usr/local/sbin/render-console-health
+    - install -D -m 0644 /cdrom/nocloud/assets/ai-node-console-health.service /target/etc/systemd/system/ai-node-console-health.service
+    - install -D -m 0644 /cdrom/nocloud/assets/ai-node-console-health.timer /target/etc/systemd/system/ai-node-console-health.timer
+    - install -D -m 0644 /cdrom/nocloud/assets/getty-console-health.conf /target/etc/systemd/system/getty@tty1.service.d/console-health.conf
+    - curtin in-target --target=/target -- visudo --check --file=/etc/sudoers.d/90-ai-node-admin
+    - curtin in-target --target=/target -- ssh-keygen -A
+    - curtin in-target --target=/target -- install -d -m 0755 /run/sshd
+    - curtin in-target --target=/target -- sshd -t
+    - curtin in-target --target=/target -- systemctl enable ai-node-console-health.timer avahi-daemon ssh
+    - install -D -m 0644 /dev/null /target/boot/efi/EFI/ubuntu/.ai-node-install-complete

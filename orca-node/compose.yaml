@@ -1,0 +1,91 @@
+name: orca-node
+
+services:
+  tailscale:
+    image: tailscale/tailscale:v1.102.3@sha256:51fec4863144d6ba0a22504cfb455d020ee0307d0c04eb48f5afee63390bdba0
+    platform: linux/amd64
+    hostname: ${NODE_NAME}
+    environment:
+      TS_ACCEPT_DNS: "true"
+      TS_AUTHKEY: file:/run/secrets/tailscale-auth-key
+      TS_AUTH_ONCE: "true"
+      TS_ENABLE_HEALTH_CHECK: "true"
+      TS_HOSTNAME: ${NODE_NAME}
+      TS_LOCAL_ADDR_PORT: 127.0.0.1:9002
+      TS_SOCKET: /var/run/tailscale/tailscaled.sock
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_USERSPACE: "false"
+    volumes:
+      - ${DATA_ROOT}/tailscale:/var/lib/tailscale
+    secrets:
+      - tailscale-auth-key
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - test -n "$$(tailscale --socket=/var/run/tailscale/tailscaled.sock ip -4 2>/dev/null)"
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 10s
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  orca:
+    image: local/orca-node:1.4.192
+    platform: linux/amd64
+    build:
+      context: .
+      args:
+        ORCA_VERSION: 1.4.192
+        ORCA_APPIMAGE_SHA256: 9003e78c6c0287c5173569bc91529da4a9963b2d4245fd23701651799abca77c
+        UBUNTU_SNAPSHOT: 20260829T000000Z
+    network_mode: service:tailscale
+    depends_on:
+      tailscale:
+        condition: service_healthy
+    environment:
+      ORCA_KEYRING_PASSWORD_FILE: /run/secrets/orca-keyring-password
+      ORCA_PAIRING_ADDRESS: ${ORCA_PAIRING_ADDRESS}
+      ORCA_PAIRING_ENABLED: ${ORCA_PAIRING_ENABLED}
+      ORCA_PORT: "6768"
+      ORCA_PROJECT_ROOT: /workspaces
+    volumes:
+      - ${DATA_ROOT}/orca-home:/home/orca
+      - ${WORKSPACE_ROOT}:/workspaces
+    secrets:
+      - orca-keyring-password
+    shm_size: 512m
+    mem_limit: 3g
+    cpus: 2
+    pids_limit: 2048
+    cap_drop:
+      - ALL
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - /home/orca/.local/bin/orca-ide status --json | jq -e '.result.runtime.state == "ready" and .result.runtime.reachable == true' >/dev/null
+      interval: 15s
+      timeout: 10s
+      retries: 12
+      start_period: 30s
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "3"
+
+secrets:
+  orca-keyring-password:
+    file: ${ORCA_KEYRING_PASSWORD_FILE}
+  tailscale-auth-key:
+    file: ${TAILSCALE_AUTH_KEY_FILE}

@@ -1,0 +1,81 @@
+#!/bin/bash
+set -euo pipefail
+
+: "${ORCA_PAIRING_ADDRESS:?ORCA_PAIRING_ADDRESS is required}"
+
+orca_port=${ORCA_PORT:-6768}
+project_root=${ORCA_PROJECT_ROOT:-/workspaces}
+keyring_password_file=${ORCA_KEYRING_PASSWORD_FILE:-/run/secrets/orca-keyring-password}
+pairing_enabled=${ORCA_PAIRING_ENABLED:-true}
+
+[[ -s "$keyring_password_file" ]] || {
+  echo "Orca keyring password file is required" >&2
+  exit 1
+}
+[[ "$pairing_enabled" == true || "$pairing_enabled" == false ]] || {
+  echo "ORCA_PAIRING_ENABLED must be true or false" >&2
+  exit 1
+}
+
+mkdir -p \
+  "$HOME/.cache" \
+  "$HOME/.config" \
+  "$HOME/.local/state" \
+  "$HOME/.local/share/keyrings" \
+  "$project_root"
+
+dbus-uuidgen --ensure="$HOME/.local/state/machine-id"
+eval "$(dbus-launch --sh-syntax)"
+eval "$(gnome-keyring-daemon --unlock < "$keyring_password_file")"
+eval "$(gnome-keyring-daemon --start --components=secrets)"
+
+keyring_ready=false
+for _ in $(seq 1 50); do
+  if printf ready \
+      | secret-tool store --label="Orca keyring readiness" orca-runtime ready \
+        >/dev/null 2>&1 \
+    && [[ "$(secret-tool lookup orca-runtime ready 2>/dev/null)" == ready ]]; then
+    keyring_ready=true
+    break
+  fi
+  sleep 0.1
+done
+[[ "$keyring_ready" == true ]] || {
+  echo "GNOME Secret Service did not become ready" >&2
+  exit 1
+}
+
+display_number=${DISPLAY#:}
+display_number=${display_number%%.*}
+[[ "$display_number" =~ ^[0-9]+$ ]] || {
+  echo "DISPLAY must use a local display number such as :99" >&2
+  exit 1
+}
+Xvfb "$DISPLAY" -screen 0 1920x1080x24 -nolisten tcp -noreset &
+xvfb_pid=$!
+x_socket="/tmp/.X11-unix/X$display_number"
+for _ in $(seq 1 50); do
+  [[ -S "$x_socket" ]] && break
+  kill -0 "$xvfb_pid" 2>/dev/null || {
+    wait "$xvfb_pid"
+    exit 1
+  }
+  sleep 0.1
+done
+[[ -S "$x_socket" ]] || {
+  echo "Xvfb did not create $x_socket" >&2
+  exit 1
+}
+
+serve_args=(
+  serve
+  --port "$orca_port"
+  --pairing-address "$ORCA_PAIRING_ADDRESS"
+  --project-root "$project_root"
+  --json
+)
+if [[ "$pairing_enabled" == false ]]; then
+  serve_args+=(--no-pairing)
+fi
+
+exec /opt/orca/squashfs-root/AppRun "${serve_args[@]}"

@@ -1,0 +1,7 @@
+[Unit]
+Description=Refresh AI node console health banner
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/render-console-health
+ExecStartPost=-/sbin/agetty --reload

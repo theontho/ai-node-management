@@ -1,0 +1,9 @@
+/local/
+/output/
+/.validate-work.*
+*.credentials.txt
+*.dmg
+*.img
+*.iso
+*.partial.*
+*.sparsebundle/

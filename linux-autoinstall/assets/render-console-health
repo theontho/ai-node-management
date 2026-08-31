@@ -1,0 +1,115 @@
+#!/bin/bash
+set -u
+
+output_dir=/run/issue.d
+output="$output_dir/90-ai-node-health.issue"
+mkdir -p "$output_dir"
+tmp=$(mktemp "$output.tmp.XXXXXX")
+trap 'rm -f "$tmp"' EXIT
+
+host=$(hostname)
+now=$(date '+%Y-%m-%d %H:%M:%S %Z')
+uptime_text=$(uptime -p 2>/dev/null || echo unknown)
+read -r load_1 load_5 load_15 _ < /proc/loadavg
+cpu_count=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo unknown)
+
+temperature=unknown
+max_millidegrees=
+for source in /sys/class/thermal/thermal_zone*/temp; do
+  [[ -r "$source" ]] || continue
+  read -r value < "$source" || continue
+  [[ "$value" =~ ^[0-9]+$ ]] || continue
+  if [[ -z "$max_millidegrees" || "$value" -gt "$max_millidegrees" ]]; then
+    max_millidegrees=$value
+  fi
+done
+if [[ -n "$max_millidegrees" ]]; then
+  temperature=$(awk -v value="$max_millidegrees" 'BEGIN { printf "%.1f C", value / 1000 }')
+fi
+
+read -r memory_used memory_total < <(
+  awk '
+    $1 == "MemTotal:" { total = $2 }
+    $1 == "MemAvailable:" { available = $2 }
+    END { printf "%.0fMiB %.1fGiB\n", (total - available) / 1024, total / 1048576 }
+  ' /proc/meminfo
+)
+read -r swap_used swap_total < <(
+  awk '
+    $1 == "SwapTotal:" { total = $2 }
+    $1 == "SwapFree:" { free = $2 }
+    END { printf "%.0fMiB %.1fGiB\n", (total - free) / 1024, total / 1048576 }
+  ' /proc/meminfo
+)
+
+filesystem_status() {
+  df -hP "$1" 2>/dev/null |
+    awk 'NR == 2 { printf "%s / %s (%s)", $3, $2, $5 }'
+}
+
+root_usage=$(filesystem_status /)
+data_mount=__DATA_MOUNT_SHELL__
+if [[ -n "$data_mount" ]]; then
+  data_usage=$(filesystem_status "$data_mount")
+  [[ -n "$data_usage" ]] || data_usage="not mounted"
+else
+  data_usage="not configured"
+fi
+
+power="Battery unavailable"
+for battery in /sys/class/power_supply/BAT*; do
+  [[ -r "$battery/capacity" && -r "$battery/status" ]] || continue
+  read -r capacity < "$battery/capacity"
+  read -r status < "$battery/status"
+  ac_state=offline
+  for supply in /sys/class/power_supply/*; do
+    [[ -r "$supply/type" && -r "$supply/online" ]] || continue
+    read -r type < "$supply/type"
+    read -r online < "$supply/online"
+    if [[ "$type" == "Mains" && "$online" == "1" ]]; then
+      ac_state=online
+      break
+    fi
+  done
+  power="Battery ${capacity}% ${status}; AC ${ac_state}"
+  break
+done
+
+interface=$(ip -4 route show default 2>/dev/null | awk 'NR == 1 { print $5 }')
+ip_address=unavailable
+ssid=not-wireless
+if [[ -n "$interface" ]]; then
+  ip_address=$(ip -4 -o address show dev "$interface" 2>/dev/null |
+    awk 'NR == 1 { split($4, address, "/"); print address[1] }')
+  [[ -n "$ip_address" ]] || ip_address=unavailable
+  detected_ssid=$(networkctl status "$interface" --no-pager 2>/dev/null |
+    sed -n 's/^[[:space:]]*Wi-Fi access point: \(.*\) ([[:xdigit:]:]\{17\})$/\1/p' |
+    head -n 1)
+  [[ -z "$detected_ssid" ]] || ssid=$detected_ssid
+fi
+
+failed_units=$(systemctl --failed --no-legend --plain 2>/dev/null |
+  awk 'NF { count++ } END { print count + 0 }')
+
+{
+  printf '\033[H\033[2J'
+  echo
+  echo "======================================================================"
+  printf ' %s health at %s\n' "$host" "$now"
+  echo "----------------------------------------------------------------------"
+  printf ' Power:   %s\n' "$power"
+  printf ' CPU:     load %s %s %s / %s cores; max temp %s\n' \
+    "$load_1" "$load_5" "$load_15" "$cpu_count" "$temperature"
+  printf ' Memory:  %s / %s; swap %s / %s\n' \
+    "$memory_used" "$memory_total" "$swap_used" "$swap_total"
+  printf ' Storage: root %s; %s %s\n' \
+    "$root_usage" "${data_mount:-data}" "$data_usage"
+  printf ' Network: %s on %s; IPv4 %s\n' "$ssid" "${interface:-unavailable}" "$ip_address"
+  printf ' Health:  %s; failed systemd units %s\n' "$uptime_text" "$failed_units"
+  echo "======================================================================"
+  echo
+} > "$tmp"
+
+chmod 0644 "$tmp"
+mv -f "$tmp" "$output"
+trap - EXIT

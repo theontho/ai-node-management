@@ -1,0 +1,5 @@
+PasswordAuthentication yes
+KbdInteractiveAuthentication no
+PermitEmptyPasswords no
+PermitRootLogin no
+AllowUsers __ADMIN_USER__

@@ -1,0 +1,26 @@
+# Host-specific configuration and credentials
+**/local/
+**/output/
+.env
+.env.*
+!*.example.env
+
+# Downloaded and generated disk media
+*.iso
+*.img
+*.dmg
+*.qcow2
+*.vhd
+*.vhdx
+*.sparsebundle/
+
+# Recovery and credential exports
+*recovery*.txt
+*credentials*.txt
+*.key
+*.pem
+
+# Tool caches and operating-system metadata
+__pycache__/
+*.pyc
+.DS_Store

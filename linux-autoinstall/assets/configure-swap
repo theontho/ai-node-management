@@ -1,0 +1,69 @@
+#!/bin/bash
+set -euo pipefail
+
+config=/etc/default/ai-node-swap
+[[ -r "$config" ]] || {
+  echo "missing swap configuration: $config" >&2
+  exit 1
+}
+# shellcheck disable=SC1090
+. "$config"
+swapfile=/swapfile
+swap_bytes=$((SWAP_SIZE_GIB * 1024 * 1024 * 1024))
+mode=${1:-activate}
+
+(( EUID == 0 )) || {
+  echo "$0 must run as root" >&2
+  exit 77
+}
+
+[[ "$mode" == "activate" || "$mode" == "prepare-only" ]] || {
+  echo "usage: $0 [activate|prepare-only]" >&2
+  exit 64
+}
+
+swap_active=false
+if swapon --show=NAME --noheadings | grep -Fxq "$swapfile"; then
+  swap_active=true
+fi
+
+if [[ -L "$swapfile" || -d "$swapfile" ]]; then
+  echo "refusing unexpected path type at $swapfile" >&2
+  exit 1
+fi
+
+if [[ ! -f "$swapfile" || "$(stat -c %s "$swapfile")" -ne "$swap_bytes" ]]; then
+  if [[ "$swap_active" == true ]]; then
+    swapoff "$swapfile"
+    swap_active=false
+  fi
+  rm -f "$swapfile"
+  fallocate -l "$swap_bytes" "$swapfile"
+fi
+chmod 0600 "$swapfile"
+
+if [[ "$(blkid -p -s TYPE -o value "$swapfile" 2>/dev/null || true)" != "swap" ]]; then
+  if [[ "$swap_active" == true ]]; then
+    swapoff "$swapfile"
+    swap_active=false
+  fi
+  mkswap -f "$swapfile" >/dev/null
+fi
+
+fstab_tmp=$(mktemp)
+trap 'rm -f "$fstab_tmp"' EXIT
+awk '$1 != "/swapfile" { print }' /etc/fstab > "$fstab_tmp"
+printf '/swapfile none swap sw 0 0\n' >> "$fstab_tmp"
+install -o root -g root -m 0644 "$fstab_tmp" /etc/fstab
+rm -f "$fstab_tmp"
+trap - EXIT
+
+printf 'vm.swappiness=%s\n' "$SWAPPINESS" \
+  > /etc/sysctl.d/90-ai-node-swap.conf
+
+if [[ "$mode" == "activate" ]]; then
+  if [[ "$swap_active" == false ]]; then
+    swapon "$swapfile"
+  fi
+  sysctl -q -w "vm.swappiness=$SWAPPINESS"
+fi

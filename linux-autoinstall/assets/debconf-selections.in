@@ -1,0 +1,6 @@
+debconf debconf/frontend select Noninteractive
+keyboard-configuration keyboard-configuration/layoutcode string us
+keyboard-configuration keyboard-configuration/xkb-keymap select us
+locales locales/default_environment_locale select en_US.UTF-8
+tzdata tzdata/Areas select __TZ_AREA__
+tzdata tzdata/Zones/__TZ_AREA__ select __TZ_ZONE__

@@ -1,0 +1,4 @@
+Defaults:__ADMIN_USER__ use_pty
+Defaults:__ADMIN_USER__ log_output
+Defaults:__ADMIN_USER__ iolog_dir=/var/log/sudo-io/%{user}
+__ADMIN_USER__ ALL=(ALL:ALL) NOPASSWD: ALL
