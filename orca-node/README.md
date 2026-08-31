@@ -156,3 +156,31 @@ is outside the images.
 The `gh` and `copilot` binaries are installed but do not embed an account or
 token. Authenticate them separately with a scoped node identity; never bake
 GitHub credentials into the image.
+
+## Comparing agent CLI overhead
+
+`benchmark-agent-clis.py` measures OpenCode, Pi, and Copilot CLI under the same
+Linux host, model, prompt, fixture repository, and three-run protocol. It
+records installed bytes, `--help` startup time and peak process-tree RSS, plus
+task wall time, CPU time, peak process-tree RSS, exit status, and an independent
+test result. Model and network time remain part of the task wall time, so use
+the startup measurements when comparing local CLI overhead.
+`install_bytes` covers the isolated npm prefix only; report runtime caches
+separately. In particular, Copilot's self-update cache under
+`~/.cache/copilot` can retain more than one platform payload.
+
+Install each CLI under its own npm prefix and authenticate it before running
+the benchmark. OpenCode and Pi require their benchmark-specific auth locations;
+Copilot uses its normal authenticated home:
+
+```bash
+python3 benchmark-agent-clis.py \
+  --output ./benchmark-results \
+  --install-root ~/.local/share/cli-benchmark \
+  --opencode-auth-root ./.cli-benchmark-auth \
+  --pi-auth-dir ./.pi-benchmark
+```
+
+The script never writes credential values to its JSON result or captured
+stdout/stderr files. Keep auth directories and benchmark results outside the
+repository or in an ignored local directory.
