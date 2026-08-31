@@ -1,0 +1,11 @@
+[Unit]
+Description=Configure idle blanking and powerdown for the physical console
+After=getty@tty1.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/configure-console-power
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

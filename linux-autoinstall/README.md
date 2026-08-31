@@ -15,6 +15,8 @@ The installer:
 - grants the dedicated administrator audited passwordless sudo;
 - creates configurable swap with configurable swappiness;
 - advertises `<node-name>.local` through Avahi;
+- blanks the physical console after a configurable idle period and requests
+  display powerdown one minute later, waking on keyboard activity;
 - displays a physical-console-only health banner refreshed every minute; and
 - writes an EFI completion marker so a still-attached USB defaults to booting
   the installed system instead of reinstalling it.
@@ -51,11 +53,17 @@ DATA_DISK=/dev/disk/by-id/data-disk-id
 DATA_MOUNT=/data
 SWAP_SIZE_GIB=16
 SWAPPINESS=10
+CONSOLE_IDLE_MINUTES=5
 ```
 
 Set `DATA_DISK=` for a single-disk installation. The config file is trusted
 shell syntax, is sourced by the builder, and must not come from an untrusted
 download.
+
+`CONSOLE_IDLE_MINUTES` accepts 1 through 60. Console blanking wakes on a
+keypress. Full backlight/panel powerdown depends on support from the target's
+Linux console display driver; unsupported powerdown is logged while blanking
+remains active.
 
 Create these ignored files under `local/private/`, each containing one value:
 

@@ -168,6 +168,9 @@ __DATA_STORAGE_CONFIG__
     - install -D -m 0644 /cdrom/nocloud/assets/swap.conf /target/etc/default/ai-node-swap
     - install -D -m 0755 /cdrom/nocloud/assets/configure-swap /target/usr/local/sbin/configure-swap
     - curtin in-target --target=/target -- /usr/local/sbin/configure-swap prepare-only
+    - install -D -m 0644 /cdrom/nocloud/assets/console-power.conf /target/etc/default/ai-node-console-power
+    - install -D -m 0755 /cdrom/nocloud/assets/configure-console-power /target/usr/local/sbin/configure-console-power
+    - install -D -m 0644 /cdrom/nocloud/assets/ai-node-console-power.service /target/etc/systemd/system/ai-node-console-power.service
     - install -D -m 0755 /cdrom/nocloud/assets/render-console-health /target/usr/local/sbin/render-console-health
     - install -D -m 0644 /cdrom/nocloud/assets/ai-node-console-health.service /target/etc/systemd/system/ai-node-console-health.service
     - install -D -m 0644 /cdrom/nocloud/assets/ai-node-console-health.timer /target/etc/systemd/system/ai-node-console-health.timer
@@ -176,5 +179,5 @@ __DATA_STORAGE_CONFIG__
     - curtin in-target --target=/target -- ssh-keygen -A
     - curtin in-target --target=/target -- install -d -m 0755 /run/sshd
     - curtin in-target --target=/target -- sshd -t
-    - curtin in-target --target=/target -- systemctl enable ai-node-console-health.timer avahi-daemon ssh
+    - curtin in-target --target=/target -- systemctl enable ai-node-console-power.service ai-node-console-health.timer avahi-daemon ssh
     - install -D -m 0644 /dev/null /target/boot/efi/EFI/ubuntu/.ai-node-install-complete

@@ -66,6 +66,7 @@ set +a
 : "${DATA_MOUNT:=/data}"
 : "${SWAP_SIZE_GIB:=16}"
 : "${SWAPPINESS:=10}"
+: "${CONSOLE_IDLE_MINUTES:=10}"
 
 [[ "$NODE_NAME" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]] || {
   echo "NODE_NAME must be a lowercase DNS label" >&2
@@ -100,6 +101,11 @@ fi
 }
 [[ "$SWAPPINESS" =~ ^[0-9]+$ && "$SWAPPINESS" -le 100 ]] || {
   echo "SWAPPINESS must be an integer from 0 through 100" >&2
+  exit 1
+}
+[[ "$CONSOLE_IDLE_MINUTES" =~ ^[0-9]+$ ]] \
+  && (( CONSOLE_IDLE_MINUTES >= 1 && CONSOLE_IDLE_MINUTES <= 60 )) || {
+  echo "CONSOLE_IDLE_MINUTES must be an integer from 1 through 60" >&2
   exit 1
 }
 
@@ -158,12 +164,15 @@ seed="$work/nocloud"
 mkdir -p "$seed/assets"
 for asset in \
   apt-noninteractive.conf \
+  ai-node-console-power.service \
   ai-node-console-health.service \
   ai-node-console-health.timer \
   getty-console-health.conf; do
   install -m 0644 "$SCRIPT_DIR/assets/$asset" "$seed/assets/$asset"
 done
 install -m 0755 "$SCRIPT_DIR/assets/configure-swap" "$seed/assets/configure-swap"
+install -m 0755 "$SCRIPT_DIR/assets/configure-console-power" \
+  "$seed/assets/configure-console-power"
 
 python3 - \
   "$SCRIPT_DIR/assets/admin-sudoers.in" \
@@ -219,6 +228,9 @@ chmod 0755 "$seed/assets/render-console-health"
 printf 'SWAP_SIZE_GIB=%s\nSWAPPINESS=%s\n' "$SWAP_SIZE_GIB" "$SWAPPINESS" \
   > "$seed/assets/swap.conf"
 chmod 0644 "$seed/assets/swap.conf"
+printf 'CONSOLE_IDLE_MINUTES=%s\n' "$CONSOLE_IDLE_MINUTES" \
+  > "$seed/assets/console-power.conf"
+chmod 0644 "$seed/assets/console-power.conf"
 
 printf 'instance-id: %s-installer\nlocal-hostname: %s\n' "$NODE_NAME" "$NODE_NAME" \
   > "$seed/meta-data"

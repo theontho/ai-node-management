@@ -58,6 +58,11 @@ if "disk-data" not in dual or 'path: "/srv/data"' not in dual:
     raise SystemExit("dual: data-disk configuration missing")
 PY
 
+grep -Fq 'CONSOLE_IDLE_MINUTES=5' "$SCRIPT_DIR/config.example.env"
+grep -Fq 'setterm --blank "$CONSOLE_IDLE_MINUTES"' \
+  "$SCRIPT_DIR/assets/configure-console-power"
+grep -Fq 'ai-node-console-power.service' "$SCRIPT_DIR/autoinstall.yaml.in"
+
 if command -v ruby >/dev/null 2>&1; then
   ruby -e 'require "yaml"; ARGV.each { |path| YAML.safe_load(File.read(path), aliases: true) }' \
     "$work/single.yaml" "$work/dual.yaml"
