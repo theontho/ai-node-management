@@ -187,6 +187,27 @@ python3 benchmark-agent-clis.py \
   --moltis-data-dir ./.moltis-benchmark/data
 ```
 
+Set model and reasoning controls explicitly when comparing a non-default model.
+For example, to use GitHub Copilot GPT-5.6 Luna at medium reasoning:
+
+```bash
+python3 benchmark-agent-clis.py \
+  --output ./benchmark-results-luna-medium \
+  --opencode-model gpt-5.6-luna \
+  --opencode-variant medium \
+  --opencode-model-override \
+  --pi-model gpt-5.6-luna \
+  --pi-thinking medium \
+  --copilot-model gpt-5.6-luna \
+  --copilot-reasoning-effort medium \
+  --moltis-model gpt-5.6-luna \
+  --moltis-thinking medium
+```
+
+`--opencode-model-override` injects minimal model metadata for a model exposed
+by the live provider but not yet present in OpenCode's models.dev catalog. Do
+not use it to bypass provider-side model availability checks.
+
 Moltis is measured through its direct `moltis agent --message` one-shot
 interface, not as an always-running gateway. For each run, the script creates
 an isolated config that restricts native filesystem tools to that disposable

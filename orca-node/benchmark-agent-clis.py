@@ -87,10 +87,21 @@ def parse_args() -> argparse.Namespace:
         choices=("opencode", "pi", "copilot", "moltis"),
         help="benchmark only the named CLI; repeat to select more than one",
     )
+    parser.add_argument("--opencode-model", default="gpt-5-mini")
+    parser.add_argument("--opencode-variant")
+    parser.add_argument(
+        "--opencode-model-override",
+        action="store_true",
+        help="add the selected model when OpenCode's models.dev catalog lacks it",
+    )
     parser.add_argument("--pi-provider", default="github-copilot")
     parser.add_argument("--pi-model", default="gpt-5-mini")
+    parser.add_argument("--pi-thinking", default="off")
+    parser.add_argument("--copilot-model", default="gpt-5-mini")
+    parser.add_argument("--copilot-reasoning-effort")
     parser.add_argument("--moltis-provider", default="github-copilot")
     parser.add_argument("--moltis-model", default="gpt-5-mini")
+    parser.add_argument("--moltis-thinking")
     return parser.parse_args()
 
 
@@ -293,6 +304,28 @@ def tools(args: argparse.Namespace) -> list[Tool]:
     opencode_env = shared_env.copy()
     opencode_env["XDG_CONFIG_HOME"] = str(auth_root / "config")
     opencode_env["XDG_DATA_HOME"] = str(auth_root / "data")
+    if args.opencode_model_override:
+        qualified_model = f"github-copilot/{args.opencode_model}"
+        opencode_env["OPENCODE_CONFIG_CONTENT"] = json.dumps(
+            {
+                "small_model": qualified_model,
+                "provider": {
+                    "github-copilot": {
+                        "models": {
+                            args.opencode_model: {
+                                "name": args.opencode_model,
+                                "reasoning": True,
+                                "tool_call": True,
+                                "limit": {
+                                    "context": 128000,
+                                    "output": 32768,
+                                },
+                            }
+                        }
+                    }
+                },
+            }
+        )
 
     pi_env = shared_env.copy()
     pi_env["PI_SKIP_VERSION_CHECK"] = "1"
@@ -308,21 +341,54 @@ def tools(args: argparse.Namespace) -> list[Tool]:
         else str(moltis_library)
     )
 
+    opencode_command = [
+        str(opencode_binary),
+        "run",
+        "--auto",
+        "--dir",
+        "{cwd}",
+        "--model",
+        f"github-copilot/{args.opencode_model}",
+    ]
+    if args.opencode_variant:
+        opencode_command.extend(["--variant", args.opencode_variant])
+    opencode_command.append(PROMPT)
+
+    copilot_command = [
+        str(copilot_binary),
+        "--prompt",
+        PROMPT,
+        "--model",
+        args.copilot_model,
+        "--allow-all",
+    ]
+    if args.copilot_reasoning_effort:
+        copilot_command.extend(
+            ["--reasoning-effort", args.copilot_reasoning_effort]
+        )
+
+    moltis_command = [
+        str(moltis_binary),
+        "agent",
+        "--message",
+        PROMPT,
+        "--config-dir",
+        "{config}",
+        "--data-dir",
+        str(args.moltis_data_dir.resolve()),
+        "--bind",
+        "127.0.0.1",
+        "--no-tls",
+    ]
+    if args.moltis_thinking:
+        moltis_command.extend(["--thinking", args.moltis_thinking])
+
     return [
         Tool(
             "opencode",
             opencode_binary,
-            "github-copilot/gpt-5-mini",
-            [
-                str(opencode_binary),
-                "run",
-                "--auto",
-                "--dir",
-                "{cwd}",
-                "--model",
-                "github-copilot/gpt-5-mini",
-                PROMPT,
-            ],
+            f"github-copilot/{args.opencode_model}",
+            opencode_command,
             opencode_env,
             root / "opencode",
         ),
@@ -344,7 +410,7 @@ def tools(args: argparse.Namespace) -> list[Tool]:
                 "--model",
                 args.pi_model,
                 "--thinking",
-                "off",
+                args.pi_thinking,
                 PROMPT,
             ],
             pi_env,
@@ -353,15 +419,8 @@ def tools(args: argparse.Namespace) -> list[Tool]:
         Tool(
             "copilot",
             copilot_binary,
-            "github-copilot/gpt-5-mini",
-            [
-                str(copilot_binary),
-                "--prompt",
-                PROMPT,
-                "--model",
-                "gpt-5-mini",
-                "--allow-all",
-            ],
+            f"github-copilot/{args.copilot_model}",
+            copilot_command,
             shared_env,
             root / "copilot",
         ),
@@ -369,19 +428,7 @@ def tools(args: argparse.Namespace) -> list[Tool]:
             "moltis",
             moltis_binary,
             f"{args.moltis_provider}/{args.moltis_model}",
-            [
-                str(moltis_binary),
-                "agent",
-                "--message",
-                PROMPT,
-                "--config-dir",
-                "{config}",
-                "--data-dir",
-                str(args.moltis_data_dir.resolve()),
-                "--bind",
-                "127.0.0.1",
-                "--no-tls",
-            ],
+            moltis_command,
             moltis_env,
             root / "moltis",
         ),
