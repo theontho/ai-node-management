@@ -278,7 +278,7 @@ fallback_models = []
     if not credential_source.exists():
         return None
     credential_link = path / credential_source.name
-    credential_link.symlink_to(credential_source)
+    credential_link.hardlink_to(credential_source)
     return credential_link
 
 
