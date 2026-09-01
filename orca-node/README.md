@@ -222,6 +222,12 @@ measured and reported separately from these terminal-style one-shot runs.
 The Orca image installs `libgomp1`, which the portable Moltis binary requires
 for ordinary interactive launches outside the benchmark harness.
 
+For a clean, manually started comparison on the configured node, run
+`run-agent-cli-benchmark-serial.sh`. It terminates only processes whose command
+line identifies the benchmark harness or exact benchmark prompt, waits for
+cleanup to settle, runs the four clients sequentially, and prints and saves
+`benchmark-results-luna-medium-serial/benchmark-report.md`.
+
 The script never writes credential values to its JSON result or captured
 stdout/stderr files. Keep auth directories and benchmark results outside the
 repository or in an ignored local directory.
