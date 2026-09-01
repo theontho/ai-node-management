@@ -1,0 +1,6 @@
+option provider-auto-update false
+option metrics false
+option auto-lsp false
+option attribution-generated-with false
+model large copilot/gpt-5.6-luna --reasoning-effort medium
+permissions allow view edit bash ls grep

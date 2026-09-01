@@ -159,75 +159,89 @@ GitHub credentials into the image.
 
 ## Comparing agent CLI overhead
 
-`benchmark-agent-clis.py` measures OpenCode, Pi, Copilot CLI, and Moltis under
-the same Linux host, model, prompt, fixture repository, and three-run protocol.
-It records installed bytes, `--help` startup time and peak process-tree RSS,
-plus task wall time, CPU time, peak process-tree RSS, exit status, and an
-independent test result. Model and network time remain part of the task wall
-time, so use the startup measurements when comparing local CLI overhead.
-`install_bytes` covers each isolated install prefix, including Moltis's local
-runtime libraries, but not shared runtime caches. In particular, Copilot's
-self-update cache under
-`~/.cache/copilot` can retain more than one platform payload.
+The portable benchmark compares OpenCode, Pi, Copilot CLI, Moltis, Hermes,
+Crush, and OpenClaw. Every client receives a fresh Git repository and the same
+composite Python and JavaScript task containing six independent repairs. All
+subtasks run in one agent invocation, so repeated CLI startup does not dominate
+the approximately 30-second target workload.
 
-Install each CLI under its own npm prefix and authenticate it before running
-the benchmark. Moltis is not an npm CLI: install its pinned portable GNU/Linux
-binary as `moltis/moltis` under the benchmark install root and include any
-non-system shared libraries under
-`moltis/deps/usr/lib/x86_64-linux-gnu`. OpenCode and Pi require their
-benchmark-specific auth locations, Moltis requires an OAuth data directory,
-and Copilot uses its normal authenticated home:
+The harness records installed size, startup wall time and RSS, task wall and
+CPU time, peak process-tree RSS, timeout state, and independent pass/fail
+grading. Visible tests, hidden checks, protected-file comparisons, and an
+allowed-change list prevent agents from passing by editing tests or unrelated
+files. Model and network latency remain part of task wall time.
+
+### Available clients
+
+The benchmark does not install, update, or authenticate agent CLIs. It first
+looks for the existing isolated layout under
+`BENCHMARK_INSTALL_ROOT` (default `~/.local/share/cli-benchmark`), then falls
+back to executables already on `PATH`. Missing clients are reported as
+`SKIPPED`. Installed clients without authentication or access to the selected
+model run normally and are reported as `FAILED`.
+
+The default suite currently requests these GitHub Copilot clients:
+
+| Benchmark name | Executable | Model |
+|---|---|---|
+| `opencode` | `opencode` | `github-copilot/gpt-5.6-luna` |
+| `pi` | `pi` | `github-copilot/gpt-5.6-luna` |
+| `copilot` | `copilot` | `github-copilot/gpt-5.6-luna` |
+| `moltis` | `moltis` | `github-copilot/gpt-5.6-luna@reasoning-medium` |
+| `hermes` | `hermes` | `copilot/gpt-5.6-luna` |
+| `crush` | `crush` | `copilot/gpt-5.6-luna` |
+| `openclaw` | `openclaw` | `github-copilot/gpt-5.6-luna` |
+
+The harness also supports `codex` with `gpt-5.4` and `claude` with `sonnet`.
+They are opt-in because they use their native OpenAI and Anthropic providers
+rather than the same GitHub Copilot model.
+
+Install and authenticate only the clients you want to compare, following each
+project's own instructions. Then copy the path-only configuration example
+into the ignored `local/` directory and adjust it to existing authentication
+locations on the current host:
 
 ```bash
-python3 benchmark-agent-clis.py \
-  --output ./benchmark-results \
-  --install-root ~/.local/share/cli-benchmark \
-  --opencode-auth-root ./.cli-benchmark-auth \
-  --pi-auth-dir ./.pi-benchmark \
-  --moltis-auth-config-dir ./.moltis-benchmark/config \
-  --moltis-data-dir ./.moltis-benchmark/data
+mkdir -p local
+cp benchmark.example.env local/benchmark.env
+$EDITOR local/benchmark.env
 ```
 
-Set model and reasoning controls explicitly when comparing a non-default model.
-For example, to use GitHub Copilot GPT-5.6 Luna at medium reasoning:
+Do not copy credentials between machines. Authenticate independently on each
+host so credentials stay in that host's protected client state. Authentication
+paths may be left unchanged for missing clients; they are only used if that
+client is available.
+
+### Run
 
 ```bash
-python3 benchmark-agent-clis.py \
-  --output ./benchmark-results-luna-medium \
-  --opencode-model gpt-5.6-luna \
-  --opencode-variant medium \
-  --opencode-model-override \
-  --pi-model gpt-5.6-luna \
-  --pi-thinking medium \
-  --copilot-model gpt-5.6-luna \
-  --copilot-reasoning-effort medium \
-  --moltis-model gpt-5.6-luna \
-  --moltis-thinking medium
+./run-agent-cli-benchmark-serial.sh local/benchmark.env
 ```
 
-`--opencode-model-override` injects minimal model metadata for a model exposed
-by the live provider but not yet present in OpenCode's models.dev catalog. Do
-not use it to bypass provider-side model availability checks.
+The runner pins GPT-5.6 Luna with medium reasoning, performs one composite
+task per available client with no warm-up, and rotates clients deterministically
+when more tasks or repetitions are selected directly through the Python
+harness. Set `BENCHMARK_AGENTS` in the configuration file to request a subset,
+such as:
 
-Moltis 20260831.01's direct `moltis agent --message` command calls a legacy
-stub and cannot execute a real turn. The benchmark therefore uses
-`moltis-acp-client.py` to run one project-aware turn through Moltis's supported
-Agent Client Protocol stdio interface. For each run, the script creates an
-isolated config that restricts native filesystem tools to that disposable
-repository, disables interactive approvals and command sandboxing, pins one
-provider/model, and disables failover. Any persistent gateway idle RSS must be
-measured and reported separately from these terminal-style one-shot runs.
-`--moltis-thinking medium` selects Moltis's native
-`@reasoning-medium` provider-registry variant for the pinned model.
-The Orca image installs `libgomp1`, which the portable Moltis binary requires
-for ordinary interactive launches outside the benchmark harness.
+```bash
+BENCHMARK_AGENTS="pi copilot moltis"
+```
 
-For a clean, manually started comparison on the configured node, run
-`run-agent-cli-benchmark-serial.sh`. It terminates only processes whose command
-line identifies the benchmark harness or exact benchmark prompt, waits for
-cleanup to settle, runs the four clients sequentially, and prints and saves
-`benchmark-results-luna-medium-serial/benchmark-report.md`.
+Results are printed and written to
+`output/agent-cli-benchmark/benchmark-report.md`; raw measurements are in
+`output/agent-cli-benchmark/results.json`. Both remain ignored by Git.
 
-The script never writes credential values to its JSON result or captured
-stdout/stderr files. Keep auth directories and benchmark results outside the
-repository or in an ignored local directory.
+The runner allows only one suite per user at a time and gives every suite a
+unique process marker. On startup it removes escaped children belonging to a
+previous crashed run, creates fresh fixture repositories, and cleans temporary
+OpenCode and Hermes credential copies on exit. Persistent authentication state
+is never included in result JSON or captured task output. Hermes receives a
+fresh runtime database for every suite to prevent session reuse across
+benchmark workspaces.
+
+Moltis 20260831.01 is invoked through its supported Agent Client Protocol
+stdio interface because its direct `moltis agent --message` path does not
+execute a functional coding turn. The generated per-run Moltis configuration
+restricts filesystem access to the disposable fixture, disables interactive
+approvals and failover, and pins the exact provider model.

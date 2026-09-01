@@ -25,6 +25,24 @@ for script in \
   "$ROOT"/orca-node/assets/orca-entrypoint; do
   bash -n "$script"
 done
+bash -n "$ROOT/orca-node/benchmark.example.env"
+
+python3 - "$ROOT" <<'PY'
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+for path in (
+    root / "orca-node/benchmark-agent-clis.py",
+    root / "orca-node/benchmark_tasks.py",
+    root / "orca-node/generate-benchmark-report.py",
+    root / "orca-node/moltis-acp-client.py",
+):
+    compile(path.read_text(), str(path), "exec")
+PY
+
+python3 "$ROOT/orca-node/benchmark-agent-clis.py" --help >/dev/null
+python3 "$ROOT/orca-node/generate-benchmark-report.py" --help >/dev/null
 
 if command -v shellcheck >/dev/null 2>&1; then
   shellcheck \
