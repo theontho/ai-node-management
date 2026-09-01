@@ -44,6 +44,7 @@ RUN sed -i -E \
       libcups2t64 \
       libgtk-3-0t64 \
       libgbm1 \
+      libgomp1 \
       libnspr4 \
       libnss3 \
       libpango-1.0-0 \

@@ -219,6 +219,8 @@ provider/model, and disables failover. Any persistent gateway idle RSS must be
 measured and reported separately from these terminal-style one-shot runs.
 `--moltis-thinking medium` selects Moltis's native
 `@reasoning-medium` provider-registry variant for the pinned model.
+The Orca image installs `libgomp1`, which the portable Moltis binary requires
+for ordinary interactive launches outside the benchmark harness.
 
 The script never writes credential values to its JSON result or captured
 stdout/stderr files. Keep auth directories and benchmark results outside the
