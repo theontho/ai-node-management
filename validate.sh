@@ -9,6 +9,7 @@ for executable in \
   "$ROOT"/linux-autoinstall/render-autoinstall.py \
   "$ROOT"/orca-node/*.sh \
   "$ROOT"/orca-node/assets/orca-entrypoint \
+  "$ROOT"/windows-orca-devbox/*.sh \
   "$ROOT"/windows-autoinstall/*.sh \
   "$ROOT"/windows-autoinstall/config.py; do
   [[ -x "$executable" ]] || {
@@ -19,6 +20,7 @@ done
 
 "$ROOT/linux-autoinstall/validate.sh"
 "$ROOT/windows-autoinstall/validate.sh"
+"$ROOT/windows-orca-devbox/validate.sh"
 
 for script in \
   "$ROOT"/orca-node/*.sh \

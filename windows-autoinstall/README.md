@@ -100,6 +100,28 @@ whole-disk `/dev/diskN` path and an exact confirmation tied to that same path:
 unmounts the whole disk, writes through the raw device, verifies a complete
 SHA-256 readback, and ejects it. **The selected removable disk is destroyed.**
 
+## Configure an existing Windows installation
+
+If Windows is already installed, create a non-destructive post-install payload
+instead of building or booting installer media:
+
+```sh
+./build-existing-setup.sh \
+  --config local/config.env \
+  --ssh-public-key-file local/private/ssh-public-key \
+  --output-dir /Volumes/YOUR_USB/ai-node-setup
+```
+
+The output directory must not already exist. The builder does not format,
+erase, or otherwise modify the destination volume outside that new directory.
+On the configured Windows host, right-click `install-existing.ps1`, select
+**Run with PowerShell**, and approve one UAC prompt. The script verifies the
+payload, confirms the configured computer and administrator account, installs
+Microsoft OpenSSH through the built-in WinGet client when needed, copies the
+provisioning files under `C:\ProgramData`, and starts the same retrying system
+task used by the unattended installer. It does not install Windows or alter
+disk partitions.
+
 ## Validate
 
 ```sh

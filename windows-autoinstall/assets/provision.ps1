@@ -53,6 +53,10 @@ function Configure-Wifi {
 }
 
 function Install-OpenSshServer {
+    if (Get-Service -Name sshd -ErrorAction SilentlyContinue) {
+        return
+    }
+
     $capabilityName = "OpenSSH.Server~~~~0.0.1.0"
     for ($attempt = 1; $attempt -le 60; $attempt++) {
         $capability = Get-WindowsCapability -Online -Name $capabilityName
@@ -122,7 +126,13 @@ function Configure-RemoteAdministration {
         -Type String `
         -Value "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe"
 
-    $sshd = "$env:WINDIR\System32\OpenSSH\sshd.exe"
+    $sshd = @(
+        "$env:WINDIR\System32\OpenSSH\sshd.exe",
+        "$env:ProgramFiles\OpenSSH\sshd.exe"
+    ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+    if (-not $sshd) {
+        throw "Could not find sshd.exe"
+    }
     & $sshd -t
     if ($LASTEXITCODE -ne 0) {
         throw "OpenSSH rejected the generated sshd_config"

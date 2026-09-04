@@ -10,6 +10,7 @@ sidecar on Ubuntu.
 | --- | --- |
 | [`linux-autoinstall/`](linux-autoinstall/) | Unattended Ubuntu Server 24.04 AMD64 installer with Wi-Fi, SSH, recovery access, explicit disk selection, and a console health display |
 | [`windows-autoinstall/`](windows-autoinstall/) | Unattended Windows 11 Pro x64 installer with safe disk selection, Wi-Fi, OpenSSH, and remote administrator provisioning |
+| [`windows-orca-devbox/`](windows-orca-devbox/) | Existing Windows host deployment for an associated, unprivileged Orca runtime and native development toolchain |
 | [`orca-node/`](orca-node/) | Docker Compose appliance packaging Orca with an official Tailscale sidecar, plus a discovery-only coding-agent benchmark suite |
 | [`docs/`](docs/) | Architecture, security boundaries, and cross-platform installer guidance |
 
