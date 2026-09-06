@@ -1,17 +1,20 @@
 [Unit]
-Description=Orca and Tailscale container appliance
-Wants=network-online.target
-After=docker.service network-online.target
+Description=Orca container appliance over host Tailscale
+Wants=network-online.target tailscaled.service
+After=docker.service network-online.target tailscaled.service
 Requires=docker.service
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=/opt/orca-node
+ExecStartPre=/usr/bin/tailscale ip -4
 ExecStart=/usr/bin/docker compose --env-file /opt/orca-node/node.env up --detach --remove-orphans
 ExecStop=/usr/bin/docker compose --env-file /opt/orca-node/node.env stop
 TimeoutStartSec=600
 TimeoutStopSec=120
+Restart=on-failure
+RestartSec=15
 
 [Install]
 WantedBy=multi-user.target

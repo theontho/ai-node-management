@@ -10,9 +10,10 @@ or secrets.
 > backs the installer volume, rejects removable USB media as an installation
 > target, and prefers the fastest internal disk meeting the configured size.
 > If none meets that preference, it selects the largest eligible internal
-> disk. It also attempts to remove partition tables from other eligible
-> internal disks. If safe automatic selection cannot run, it falls back to
-> ordinary interactive Windows Setup instead of supplying an answer file.
+> disk. It erases every other eligible internal disk, creates one empty NTFS
+> data volume on each, and mounts those volumes after installation. If safe
+> automatic selection cannot run, it falls back to ordinary interactive Windows Setup
+> instead of supplying an answer file.
 
 Review `diskpolicy.go`, its tests, and your configuration before using this
 tool. Test recovery procedures before relying on the resulting machine.
@@ -139,6 +140,13 @@ Windows resumes its normal automatic security, quality, Defender, and driver
 updates after networking becomes available. SSH and RDP firewall rules accept
 only the local subnet and Tailscale address ranges; RDP requires normal Windows
 credentials and Network Level Authentication.
+
+Every eligible non-system internal disk is cleaned in WinPE, converted to GPT,
+and quick-formatted as one empty NTFS volume. First-boot provisioning gives
+each installer-owned volume a persistent folder mount under
+`C:\DataDisks\Disk-N` and a free drive letter from `D:` through `Z:` when one
+is available. The folder mount remains the stable access path even when no
+drive letter is free. Disconnect any internal storage that must survive.
 
 ## Flash
 

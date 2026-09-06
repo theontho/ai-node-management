@@ -8,8 +8,9 @@ base operating system, not a complete application environment.
 
 - Complete setup without locale, keyboard, account, or OOBE interaction.
 - Use US English locale and keyboard defaults.
-- Configure a declared hostname and dedicated administrator.
-- Join a supplied Wi-Fi network and retain DHCP Ethernet support.
+- Generate a memorable hostname from a declared prefix and configure a
+  dedicated administrator.
+- Optionally join a supplied Wi-Fi network and retain DHCP Ethernet support.
 - Bring up OpenSSH automatically with a supplied public key.
 - Retain a strong local recovery credential in an ignored report.
 - Make disk-erasure scope explicit and abort or fall back safely when target
@@ -20,14 +21,26 @@ base operating system, not a complete application environment.
 ## Linux
 
 [`linux-autoinstall/`](../linux-autoinstall/) remasters an official Ubuntu
-Server 24.04 AMD64 ISO. Configuration names the system disk explicitly and may
-name a second data disk. The installer verifies both devices are
-non-removable before erasing them.
+Server 24.04 AMD64 ISO. Its default policy safely ranks eligible internal
+system disks at boot, while explicit whole-disk overrides remain available.
+By default it formats every remaining eligible internal disk as ext4 and
+mounts the filesystems persistently at `/data`, `/data2`, `/data3`, and so on.
+It can instead leave secondary disks untouched or validate one explicit
+data-disk path.
 
 The installed baseline includes Wi-Fi, DHCP Ethernet, OpenSSH, Avahi, a
 dedicated administrator with audited passwordless sudo, configurable swap, and
-a physical-console health display. An EFI completion marker prevents a
-still-attached installer from reinstalling by default.
+a physical-console health display. Each installation receives a memorable
+`prefix-adjective-noun` hostname, and each image build generates a three-word
+local-console recovery password while keeping SSH key-only. An EFI completion
+marker prevents a still-attached installer from reinstalling by default.
+
+The default Linux storage policy automatically excludes removable, read-only,
+USB, FireWire, and installer-backed disks, then ranks remaining internal disks
+by preferred capacity and performance. Explicit whole-disk overrides remain
+available. Unsafe selection falls back to Subiquity's interactive storage
+screen. Host-level Tailscale is installed from a checksum-pinned embedded DEB
+and enrolls from a private file after networking starts.
 
 See the component README for required inputs, build commands, flashing checks,
 and exact destructive behavior.
@@ -37,8 +50,10 @@ and exact destructive behavior.
 [`windows-autoinstall/`](../windows-autoinstall/) builds Windows 11 Pro x64
 media from an official Microsoft ISO. Its WinPE disk selector excludes every
 physical disk backing the installer, rejects removable targets, ranks eligible
-internal disks, and generates a best-effort wipe plan for secondary internal
-disks. If safe automatic selection fails, Windows Setup remains interactive.
+internal disks, and generates a preparation plan for secondary internal disks.
+Each secondary disk becomes one empty GPT/NTFS data volume with a
+persistent `C:\DataDisks\Disk-N` folder mount and, when available, a drive
+letter. If safe automatic selection fails, Windows Setup remains interactive.
 
 The installed baseline creates a dedicated local administrator, imports the
 Wi-Fi profile, enables Microsoft OpenSSH Server, installs the authorized key,

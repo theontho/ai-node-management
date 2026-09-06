@@ -26,8 +26,26 @@ workspace_root=${2:-/srv/orca-node/workspaces}
   echo "amd64 is required" >&2
   exit 1
 }
-[[ -c /dev/net/tun ]] || {
-  echo "/dev/net/tun is required for Tailscale" >&2
+command -v tailscale >/dev/null || {
+  echo "host Tailscale is required" >&2
+  exit 1
+}
+systemctl is-active --quiet tailscaled || {
+  echo "host tailscaled.service must be running" >&2
+  exit 1
+}
+tailscale status --json | python3 -c '
+import json
+import sys
+
+if json.load(sys.stdin).get("BackendState") != "Running":
+    raise SystemExit(1)
+' || {
+  echo "host Tailscale backend is not running" >&2
+  exit 1
+}
+[[ "$(tailscale ip -4 | sed -n '1p')" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+  echo "host Tailscale IPv4 address is unavailable" >&2
   exit 1
 }
 
@@ -42,7 +60,6 @@ systemctl enable --now docker
 
 install -d -o root -g root -m 0755 /opt/orca-node
 install -d -o root -g root -m 0700 "$data_root" "$data_root/secrets"
-install -d -o root -g root -m 0700 "$data_root/tailscale"
 install -d -o 1000 -g 1000 -m 0700 "$data_root/orca-home"
 install -d -o 1000 -g 1000 -m 0750 "$workspace_root"
 

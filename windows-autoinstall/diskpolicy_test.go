@@ -120,14 +120,25 @@ func containsWord(words []string, candidate string) bool {
 	return false
 }
 
-func TestWipePlanExcludesTarget(t *testing.T) {
-	plan := renderSecondaryWipePlan([]disk{{index: 0}, {index: 1}, {index: 2}}, 1)
+func TestSecondaryDiskPlanExcludesTargetAndFormatsEveryOtherDisk(t *testing.T) {
+	plan := renderSecondaryDiskPlan([]disk{{index: 2}, {index: 1}, {index: 0}}, 1)
 	if strings.Contains(plan, "select disk 1") {
-		t.Fatalf("wipe plan includes target disk:\n%s", plan)
+		t.Fatalf("secondary disk plan includes target disk:\n%s", plan)
 	}
-	for _, expected := range []string{"select disk 0", "select disk 2", "clean"} {
+	for _, expected := range []string{
+		"select disk 0",
+		`format fs=ntfs quick label="AI_NODE_DATA_0"`,
+		"select disk 2",
+		`format fs=ntfs quick label="AI_NODE_DATA_2"`,
+		"clean",
+		"convert gpt",
+		"create partition primary",
+	} {
 		if !strings.Contains(plan, expected) {
-			t.Fatalf("wipe plan is missing %q:\n%s", expected, plan)
+			t.Fatalf("secondary disk plan is missing %q:\n%s", expected, plan)
 		}
+	}
+	if strings.Index(plan, "select disk 0") > strings.Index(plan, "select disk 2") {
+		t.Fatalf("secondary disk plan is not sorted by disk number:\n%s", plan)
 	}
 }

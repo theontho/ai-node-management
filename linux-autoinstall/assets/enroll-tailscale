@@ -1,0 +1,30 @@
+#!/bin/bash
+set -euo pipefail
+
+key_file=${AI_NODE_TAILSCALE_AUTH_KEY_FILE:-/etc/ai-node/tailscale-auth-key}
+tailscale_bin=${AI_NODE_TAILSCALE_BIN:-/usr/bin/tailscale}
+
+is_running() {
+  "$tailscale_bin" status --json 2>/dev/null \
+    | grep -Eq '"BackendState"[[:space:]]*:[[:space:]]*"Running"'
+}
+
+if [[ ! -s "$key_file" ]]; then
+  if is_running; then
+    exit 0
+  fi
+  echo "Tailscale is not enrolled and its auth key is unavailable." >&2
+  exit 1
+fi
+
+"$tailscale_bin" up \
+  --auth-key="file:$key_file" \
+  --hostname="$(hostname)" \
+  --timeout=2m
+
+if ! is_running; then
+  echo "Tailscale backend is not running after enrollment." >&2
+  exit 1
+fi
+
+rm -f "$key_file"

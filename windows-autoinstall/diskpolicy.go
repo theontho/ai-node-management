@@ -213,14 +213,14 @@ func renderAnswer(template string, targetIndex int, computerName string) (string
 	return strings.ReplaceAll(rendered, computerNamePlaceholder, computerName), nil
 }
 
-func renderSecondaryWipePlan(candidates []disk, targetIndex int) string {
+func renderSecondaryDiskPlan(candidates []disk, targetIndex int) string {
 	secondary := append([]disk(nil), candidates...)
 	sort.Slice(secondary, func(i, j int) bool {
 		return secondary[i].index < secondary[j].index
 	})
 
 	lines := []string{
-		"rem Best-effort removal of partition tables from non-target internal disks.",
+		"rem Prepare non-target internal disks as empty NTFS data volumes.",
 	}
 	for _, candidate := range secondary {
 		if candidate.index == targetIndex {
@@ -232,6 +232,9 @@ func renderSecondaryWipePlan(candidates []disk, targetIndex int) string {
 			"online disk noerr",
 			"attributes disk clear readonly noerr",
 			"clean",
+			"convert gpt",
+			"create partition primary",
+			fmt.Sprintf(`format fs=ntfs quick label="AI_NODE_DATA_%d"`, candidate.index),
 		)
 	}
 	lines = append(lines, "exit", "")

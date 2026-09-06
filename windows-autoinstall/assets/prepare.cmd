@@ -30,13 +30,13 @@ if errorlevel 1 goto :normal
   --preferred-min-bytes __PREFERRED_MIN_TARGET_DISK_BYTES_CMD__ ^
   --answer-template "%MEDIA%\ai-node\autounattend.xml.in" ^
   --answer-output "X:\ai-node-autounattend.xml" ^
-  --wipe-plan-output "X:\ai-node-wipe-secondary.txt"
+  --secondary-plan-output "X:\ai-node-secondary-disks.txt"
 if errorlevel 1 goto :normal
 
-if not exist "X:\ai-node-wipe-secondary.txt" goto :no_secondary_disks
+if not exist "X:\ai-node-secondary-disks.txt" goto :no_secondary_disks
 
-diskpart.exe /s "X:\ai-node-wipe-secondary.txt"
-if errorlevel 1 echo WARNING: one or more secondary internal disks could not be cleaned; continuing with the selected Windows target.
+diskpart.exe /s "X:\ai-node-secondary-disks.txt"
+if errorlevel 1 echo WARNING: one or more secondary internal disks could not be prepared as data volumes; continuing with the selected Windows target.
 
 :no_secondary_disks
 echo Automatic target selection completed.

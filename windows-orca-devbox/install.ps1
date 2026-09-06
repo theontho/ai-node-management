@@ -27,6 +27,7 @@ $githubCliInstallerSha256 = "989CDDA347F142CFA33C4457BE5FEC6C2E283A9A65525ADE49A
 $workerName = "orca-worker"
 $taskName = "OrcaDevbox-Serve"
 $firewallRuleName = "Orca Devbox Runtime"
+$dashboardFirewallRuleName = "Reddit archive progress dashboard"
 $root = "C:\ProgramData\OrcaDevbox"
 $workspaceRoot = "C:\Orca\workspaces"
 $toolsRoot = Join-Path $root "tools"
@@ -232,7 +233,7 @@ try {
             -Password $securePassword `
             -PasswordNeverExpires `
             -UserMayNotChangePassword `
-            -Description "Unprivileged Orca runtime and agent account"
+            -Description "Administrative Orca runtime and agent account"
     }
 
     $usersGroup = Get-LocalGroup -SID "S-1-5-32-545"
@@ -245,8 +246,8 @@ try {
     $administratorsGroup = Get-LocalGroup -SID "S-1-5-32-544"
     $isAdministrator = Get-LocalGroupMember -Group $administratorsGroup |
         Where-Object { $_.SID.Value -eq $worker.SID.Value }
-    if ($isAdministrator) {
-        throw "$workerName must not be a member of the local Administrators group"
+    if (-not $isAdministrator) {
+        Add-LocalGroupMember -Group $administratorsGroup -Member $worker
     }
     Grant-BatchLogonRight $worker.SID.Value
 
@@ -258,16 +259,22 @@ try {
     $runtimeProcesses = @(
         Get-CimInstance Win32_Process |
             Where-Object {
-                $_.ExecutablePath -and
-                $_.ExecutablePath.StartsWith(
-                    (Join-Path $root "app"),
-                    [StringComparison]::OrdinalIgnoreCase
-                )
+                $owner = Invoke-CimMethod `
+                    -InputObject $_ `
+                    -MethodName GetOwnerSid `
+                    -ErrorAction SilentlyContinue
+                $owner.Sid -eq $worker.SID.Value
             }
     )
     if ($runtimeProcesses) {
         $runtimeProcesses | ForEach-Object {
-            Stop-Process -Id $_.ProcessId -Force -ErrorAction Stop
+            try {
+                Stop-Process -Id $_.ProcessId -Force -ErrorAction Stop
+            } catch {
+                if (Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue) {
+                    throw
+                }
+            }
         }
         for ($attempt = 1; $attempt -le 30; $attempt++) {
             if (-not (Get-NetTCPConnection `
@@ -282,7 +289,7 @@ try {
             -State Listen `
             -LocalPort $Port `
             -ErrorAction SilentlyContinue) {
-            throw "Existing Orca runtime did not stop cleanly"
+            throw "Existing Orca worker processes did not stop cleanly"
         }
     }
 
@@ -343,6 +350,19 @@ try {
         -Profile Any `
         -RemoteAddress LocalSubnet | Out-Null
 
+    Get-NetFirewallRule `
+        -DisplayName $dashboardFirewallRuleName `
+        -ErrorAction SilentlyContinue |
+        Remove-NetFirewallRule
+    New-NetFirewallRule `
+        -DisplayName $dashboardFirewallRuleName `
+        -Direction Inbound `
+        -Action Allow `
+        -Protocol TCP `
+        -LocalPort 8765 `
+        -Profile Private,Public `
+        -RemoteAddress @("LocalSubnet", "100.64.0.0/10") | Out-Null
+
     $powerShell = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
     $action = New-ScheduledTaskAction `
         -Execute $powerShell `
@@ -363,7 +383,7 @@ try {
         -Settings $settings `
         -User $taskUser `
         -Password $workerPassword `
-        -RunLevel Limited `
+        -RunLevel Highest `
         -Force | Out-Null
 
     $registeredTask = Get-ScheduledTask -TaskName $taskName
@@ -395,7 +415,7 @@ try {
     }
 
     Write-Host "Orca devbox runtime is listening on $PairingAddress`:$Port."
-    Write-Host "Runtime account: $workerName (non-administrator)"
+    Write-Host "Runtime account: $workerName (local administrator)"
     Write-Host "Workspace root: $workspaceRoot"
 } finally {
     Remove-Item -LiteralPath $WorkerPasswordFile -Force -ErrorAction SilentlyContinue

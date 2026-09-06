@@ -52,7 +52,7 @@ for value in (
 
 assert '$workerName = "orca-worker"' in install
 assert 'Get-LocalGroup -SID "S-1-5-32-544"' in install
-assert "must not be a member of the local Administrators group" in install
+assert "Add-LocalGroupMember -Group $administratorsGroup -Member $worker" in install
 assert "Grant-BatchLogonRight" in install
 assert "SeBatchLogonRight" in install
 assert '"/areas", "USER_RIGHTS"' in install
@@ -70,12 +70,25 @@ assert "gh_$($githubCliVersion)_windows_amd64.msi" in install
 assert "winget.exe" not in install
 assert "RemoteAddress LocalSubnet" in install
 assert "Stop-ScheduledTask" in install
+assert "GetOwnerSid" in install
 assert "Register-ScheduledTask" in install
-assert "-RunLevel Limited" in install
+assert "-RunLevel Highest" in install
+assert '$dashboardFirewallRuleName = "Reddit archive progress dashboard"' in install
+assert "-LocalPort 8765" in install
+assert '-RemoteAddress @("LocalSubnet", "100.64.0.0/10")' in install
 assert "Remove-Item -LiteralPath $WorkerPasswordFile" in install
 assert "C:\\Orca\\workspaces" in install
 
+elevate = (root / "elevate-worker.ps1").read_text()
+assert "Add-LocalGroupMember -Group $administratorsGroup -Member $worker" in elevate
+assert "Register-ScheduledTask" in elevate
+assert "-RunLevel Highest" in elevate
+assert "-LocalPort 8765" in elevate
+assert "Existing Orca worker processes did not stop cleanly" in elevate
+assert "Remove-Item -LiteralPath $WorkerPasswordFile" in elevate
+
 assert "C:\\ProgramData\\OrcaDevbox" in serve
+assert "Orca runtime must start with an elevated administrator token" in serve
 assert "--pairing-address" in serve
 assert "--json" in serve
 assert "orca.exe" in serve
@@ -94,7 +107,8 @@ assert "confirm_tailscale" in connect_rdp
 assert "8#$permissions & 077" in connect_rdp
 assert "Administrator password: " in connect_rdp
 assert "worker_password" not in readme
-assert "does not receive administrator rights" in readme
+assert "local Administrators group" in readme
+assert "`TCP 8765`" in readme
 PY
 
 echo "Windows Orca devbox validation passed."

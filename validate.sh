@@ -6,6 +6,9 @@ ROOT=$(cd "$(dirname "$0")" && pwd)
 for executable in \
   "$ROOT"/validate.sh \
   "$ROOT"/linux-autoinstall/*.sh \
+  "$ROOT"/linux-autoinstall/config.py \
+  "$ROOT"/linux-autoinstall/diskselector.py \
+  "$ROOT"/linux-autoinstall/generate-password.py \
   "$ROOT"/linux-autoinstall/render-autoinstall.py \
   "$ROOT"/orca-node/*.sh \
   "$ROOT"/orca-node/assets/orca-entrypoint \
@@ -56,9 +59,9 @@ fi
 if command -v docker >/dev/null 2>&1; then
   DATA_ROOT=/srv/orca-node/state \
   WORKSPACE_ROOT=/srv/orca-node/workspaces \
-  TAILSCALE_AUTH_KEY_FILE=/tmp/tailscale-auth-key \
   ORCA_KEYRING_PASSWORD_FILE=/tmp/orca-keyring-password \
-  NODE_NAME=ai-node-validation \
+  ORCA_BIND_ADDRESS=100.64.0.10 \
+  ORCA_CONTAINER_HOSTNAME=lin-lunar-maple-orca \
   ORCA_PAIRING_ADDRESS=127.0.0.1 \
   ORCA_PAIRING_ENABLED=false \
     docker compose -f "$ROOT/orca-node/compose.yaml" config --quiet
@@ -73,5 +76,18 @@ grep -Fq 'python -m venv /tmp/python-smoke' "$ROOT/orca-node/Dockerfile"
 grep -Fq 'python-is-python3' "$ROOT/orca-node/Dockerfile"
 grep -Fq 'copilot --version' "$ROOT/orca-node/Dockerfile"
 grep -Fq 'gh --version' "$ROOT/orca-node/Dockerfile"
+grep -Fq '"${ORCA_BIND_ADDRESS}:6768:6768"' "$ROOT/orca-node/compose.yaml"
+grep -Fq 'hostname: "${ORCA_CONTAINER_HOSTNAME}"' "$ROOT/orca-node/compose.yaml"
+grep -Fq 'container_hostname="${host_hostname:0:58}-orca"' \
+  "$ROOT/orca-node/deploy.sh"
+grep -Fq 'host tailscaled.service must be running' \
+  "$ROOT/orca-node/bootstrap-host.sh"
+grep -Fq 'ExecStartPre=/usr/bin/tailscale ip -4' \
+  "$ROOT/orca-node/assets/orca-node.service"
+if grep -Eq 'tailscale/tailscale|network_mode:[[:space:]]*service:tailscale|TS_AUTHKEY' \
+  "$ROOT/orca-node/compose.yaml"; then
+  echo "Orca Compose still embeds a Tailscale sidecar" >&2
+  exit 1
+fi
 
 echo "Repository validation passed."

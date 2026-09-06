@@ -11,6 +11,8 @@ usage: build-image.sh \
   --base-sha256 HEX \
   --config FILE \
   --private-dir DIR \
+  --tailscale-deb FILE \
+  --tailscale-sha256 HEX \
   --output FILE \
   [--recovery-report FILE]
 EOF
@@ -21,6 +23,8 @@ base_iso=
 base_sha256=
 config_file=
 private_dir=
+tailscale_deb=
+tailscale_sha256=
 output=
 recovery_report=
 while [[ "$#" -gt 0 ]]; do
@@ -29,14 +33,21 @@ while [[ "$#" -gt 0 ]]; do
     --base-sha256) base_sha256=$2; shift 2 ;;
     --config) config_file=$2; shift 2 ;;
     --private-dir) private_dir=$2; shift 2 ;;
+    --tailscale-deb) tailscale_deb=$2; shift 2 ;;
+    --tailscale-sha256) tailscale_sha256=$2; shift 2 ;;
     --output) output=$2; shift 2 ;;
     --recovery-report) recovery_report=$2; shift 2 ;;
     *) usage ;;
   esac
 done
 
-[[ -f "$base_iso" && -f "$config_file" && -d "$private_dir" && -n "$output" ]] || usage
+[[ -f "$base_iso" &&
+  -f "$config_file" &&
+  -d "$private_dir" &&
+  -f "$tailscale_deb" &&
+  -n "$output" ]] || usage
 [[ "$base_sha256" =~ ^[0-9a-fA-F]{64}$ ]] || usage
+[[ "$tailscale_sha256" =~ ^[0-9a-fA-F]{64}$ ]] || usage
 if [[ -z "$recovery_report" ]]; then
   recovery_report="${output%.iso}-recovery.txt"
 fi
@@ -45,71 +56,30 @@ fi
   exit 1
 }
 
-for command_name in openssl python3 shasum ssh-keygen xorriso; do
+for command_name in ar openssl python3 shasum ssh-keygen tar xorriso; do
   command -v "$command_name" >/dev/null || {
     echo "missing required command: $command_name" >&2
     exit 1
   }
 done
 
-set -a
-# The config is trusted operator input and is intentionally kept outside Git.
-# shellcheck disable=SC1090
-. "$config_file"
-set +a
+python3 "$SCRIPT_DIR/config.py" validate --config "$config_file"
+config_get() {
+  python3 "$SCRIPT_DIR/config.py" get --config "$config_file" --key "$1"
+}
+NODE_NAME_PREFIX=$(config_get NODE_NAME_PREFIX)
+ADMIN_USER=$(config_get ADMIN_USER)
+TIMEZONE=$(config_get TIMEZONE)
+SYSTEM_DISK=$(config_get SYSTEM_DISK)
+DATA_DISK=$(config_get DATA_DISK)
+DATA_MOUNT=$(config_get DATA_MOUNT)
+PREFERRED_MIN_TARGET_DISK_BYTES=$(config_get PREFERRED_MIN_TARGET_DISK_BYTES)
+SWAP_SIZE_GIB=$(config_get SWAP_SIZE_GIB)
+SWAPPINESS=$(config_get SWAPPINESS)
+CONSOLE_IDLE_SECONDS=$(config_get CONSOLE_IDLE_SECONDS)
+MINIMUM_SYSTEM_DISK_BYTES=$((SWAP_SIZE_GIB * 1024 * 1024 * 1024 + 16000000000))
 
-: "${NODE_NAME:?NODE_NAME is required}"
-: "${ADMIN_USER:?ADMIN_USER is required}"
-: "${TIMEZONE:?TIMEZONE is required}"
-: "${SYSTEM_DISK:?SYSTEM_DISK is required}"
-: "${DATA_DISK:=}"
-: "${DATA_MOUNT:=/data}"
-: "${SWAP_SIZE_GIB:=16}"
-: "${SWAPPINESS:=10}"
-: "${CONSOLE_IDLE_SECONDS:=60}"
-
-[[ "$NODE_NAME" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]] || {
-  echo "NODE_NAME must be a lowercase DNS label" >&2
-  exit 1
-}
-[[ "$ADMIN_USER" =~ ^[a-z_][a-z0-9_-]{0,30}$ ]] || {
-  echo "ADMIN_USER is not a valid Linux account name" >&2
-  exit 1
-}
-[[ "$TIMEZONE" =~ ^[A-Za-z0-9_+-]+/[A-Za-z0-9_+./-]+$ ]] \
-  && [[ -f "/usr/share/zoneinfo/$TIMEZONE" ]] || {
-  echo "TIMEZONE must name an installed IANA timezone" >&2
-  exit 1
-}
-[[ "$SYSTEM_DISK" =~ ^/dev/[A-Za-z0-9._/-]+$ ]] || {
-  echo "SYSTEM_DISK must be an absolute /dev path" >&2
-  exit 1
-}
-if [[ -n "$DATA_DISK" ]]; then
-  [[ "$DATA_DISK" =~ ^/dev/[A-Za-z0-9._/-]+$ && "$DATA_DISK" != "$SYSTEM_DISK" ]] || {
-    echo "DATA_DISK must be a distinct absolute /dev path" >&2
-    exit 1
-  }
-  [[ "$DATA_MOUNT" =~ ^/[A-Za-z0-9._/-]+$ && "$DATA_MOUNT" != "/" ]] || {
-    echo "DATA_MOUNT must be a non-root absolute path" >&2
-    exit 1
-  }
-fi
-[[ "$SWAP_SIZE_GIB" =~ ^[0-9]+$ && "$SWAP_SIZE_GIB" -ge 1 ]] || {
-  echo "SWAP_SIZE_GIB must be a positive integer" >&2
-  exit 1
-}
-[[ "$SWAPPINESS" =~ ^[0-9]+$ && "$SWAPPINESS" -le 100 ]] || {
-  echo "SWAPPINESS must be an integer from 0 through 100" >&2
-  exit 1
-}
-[[ "$CONSOLE_IDLE_SECONDS" =~ ^[0-9]+$ ]] \
-  && (( CONSOLE_IDLE_SECONDS >= 10 && CONSOLE_IDLE_SECONDS <= 3600 )) || {
-  echo "CONSOLE_IDLE_SECONDS must be an integer from 10 through 3600" >&2
-  exit 1
-}
-
-for required in wifi-ssid wifi-password ssh-public-key controller-password; do
+for required in ssh-public-key tailscale-auth-key; do
   [[ -s "$private_dir/$required" ]] || {
     echo "missing private input: $private_dir/$required" >&2
     exit 1
@@ -117,8 +87,26 @@ for required in wifi-ssid wifi-password ssh-public-key controller-password; do
 done
 openssl passwd -6 preflight >/dev/null
 ssh-keygen -lf "$private_dir/ssh-public-key" >/dev/null
+ssh_fingerprint=$(ssh-keygen -lf "$private_dir/ssh-public-key" | awk '{print $2}')
 
-python3 - "$private_dir/wifi-ssid" "$private_dir/wifi-password" <<'PY'
+python3 - "$private_dir/tailscale-auth-key" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+value = Path(sys.argv[1]).read_text(encoding="utf-8").strip()
+if not re.fullmatch(r"tskey-[A-Za-z0-9_-]+", value):
+    raise SystemExit("Tailscale auth key file must contain exactly one tskey-* value")
+PY
+
+wifi_enabled=false
+if [[ -e "$private_dir/wifi-ssid" || -e "$private_dir/wifi-password" ]]; then
+  [[ -s "$private_dir/wifi-ssid" && -s "$private_dir/wifi-password" ]] || {
+    echo "wifi-ssid and wifi-password must either both be present or both be absent" >&2
+    exit 1
+  }
+  wifi_enabled=true
+  python3 - "$private_dir/wifi-ssid" "$private_dir/wifi-password" <<'PY'
 from pathlib import Path
 import sys
 
@@ -131,6 +119,7 @@ if not 8 <= len(password) <= 63:
 if any(character in ssid + password for character in "\r\n"):
     raise SystemExit("Wi-Fi inputs must each contain one value")
 PY
+fi
 
 actual_base_sha256=$(shasum -a 256 "$base_iso" | awk '{print $1}')
 normalized_actual_sha256=$(printf '%s' "$actual_base_sha256" | tr '[:upper:]' '[:lower:]')
@@ -139,6 +128,51 @@ normalized_expected_sha256=$(printf '%s' "$base_sha256" | tr '[:upper:]' '[:lowe
   echo "Ubuntu ISO checksum mismatch." >&2
   echo "expected: $normalized_expected_sha256" >&2
   echo "actual:   $normalized_actual_sha256" >&2
+  exit 1
+}
+actual_tailscale_sha256=$(shasum -a 256 "$tailscale_deb" | awk '{print $1}')
+normalized_tailscale_sha256=$(printf '%s' "$tailscale_sha256" | tr '[:upper:]' '[:lower:]')
+if [[ "$actual_tailscale_sha256" != "$normalized_tailscale_sha256" ]]; then
+  echo "Tailscale DEB checksum mismatch." >&2
+  echo "expected: $normalized_tailscale_sha256" >&2
+  echo "actual:   $actual_tailscale_sha256" >&2
+  exit 1
+fi
+ar t "$tailscale_deb" | grep -Fxq 'debian-binary' || {
+  echo "Tailscale package is not a Debian binary archive." >&2
+  exit 1
+}
+control_member=$(ar t "$tailscale_deb" | awk '/^control\.tar(\..+)?$/ { print; exit }')
+[[ -n "$control_member" ]] || {
+  echo "Tailscale package does not contain control metadata." >&2
+  exit 1
+}
+control_path=$(
+  ar p "$tailscale_deb" "$control_member" \
+    | tar -tf - \
+    | awk '$0 == "./control" || $0 == "control" { print; exit }'
+)
+[[ -n "$control_path" ]] || {
+  echo "Tailscale package control metadata is unreadable." >&2
+  exit 1
+}
+control_metadata=$(
+  ar p "$tailscale_deb" "$control_member" \
+    | tar -xOf - "$control_path"
+)
+grep -Eq '^Package:[[:space:]]+tailscale$' <<<"$control_metadata" || {
+  echo "DEB package name must be tailscale." >&2
+  exit 1
+}
+grep -Eq '^Architecture:[[:space:]]+amd64$' <<<"$control_metadata" || {
+  echo "Tailscale DEB architecture must be amd64." >&2
+  exit 1
+}
+tailscale_version=$(
+  awk -F ': ' '$1 == "Version" { print $2; exit }' <<<"$control_metadata"
+)
+[[ "$tailscale_version" =~ ^[A-Za-z0-9.+:~_-]+$ ]] || {
+  echo "Tailscale DEB has an invalid or missing version." >&2
   exit 1
 }
 
@@ -161,16 +195,22 @@ cleanup() {
 trap cleanup EXIT
 
 seed="$work/nocloud"
-mkdir -p "$seed/assets"
+mkdir -p "$seed/assets" "$seed/packages" "$seed/private"
 for asset in \
   apt-noninteractive.conf \
   ai-node-console-power.service \
   ai-node-console-health.service \
   ai-node-console-health.timer \
+  ai-node-tailscale-enroll.service \
   getty-console-health.conf; do
   install -m 0644 "$SCRIPT_DIR/assets/$asset" "$seed/assets/$asset"
 done
 install -m 0755 "$SCRIPT_DIR/assets/configure-swap" "$seed/assets/configure-swap"
+install -m 0755 "$SCRIPT_DIR/diskselector.py" "$seed/assets/diskselector.py"
+install -m 0755 "$SCRIPT_DIR/assets/enroll-tailscale" \
+  "$seed/assets/enroll-tailscale"
+install -m 0755 "$SCRIPT_DIR/assets/generate-node-name" \
+  "$seed/assets/generate-node-name"
 install -m 0755 "$SCRIPT_DIR/assets/manage-console-backlight" \
   "$seed/assets/manage-console-backlight"
 
@@ -231,42 +271,47 @@ chmod 0644 "$seed/assets/swap.conf"
 printf 'CONSOLE_IDLE_SECONDS=%s\n' "$CONSOLE_IDLE_SECONDS" \
   > "$seed/assets/console-power.conf"
 chmod 0644 "$seed/assets/console-power.conf"
+install -m 0600 "$private_dir/tailscale-auth-key" \
+  "$seed/private/tailscale-auth-key"
+install -m 0644 "$tailscale_deb" "$seed/packages/tailscale.deb"
 
-printf 'instance-id: %s-installer\nlocal-hostname: %s\n' "$NODE_NAME" "$NODE_NAME" \
-  > "$seed/meta-data"
+printf 'instance-id: %s-installer\nlocal-hostname: %s-installer\n' \
+  "$NODE_NAME_PREFIX" "$NODE_NAME_PREFIX" > "$seed/meta-data"
 printf '#cloud-config\n' > "$seed/vendor-data"
 
 controller_password=$(
-  python3 - "$private_dir/controller-password" <<'PY'
-from pathlib import Path
-import sys
-
-value = Path(sys.argv[1]).read_text()
-if value.endswith("\n"):
-    value = value[:-1]
-if not value or "\n" in value or "\r" in value:
-    raise SystemExit("controller-password must contain exactly one non-empty line")
-if len(value) < 16:
-    raise SystemExit("controller-password must be at least 16 characters")
-print(value, end="")
-PY
+  "$SCRIPT_DIR/generate-password.py" \
+    --word-list "$SCRIPT_DIR/assets/eff-large-wordlist.txt"
 )
 password_hash=$(printf '%s\n' "$controller_password" | openssl passwd -6 -stdin)
 
-"$SCRIPT_DIR/render-autoinstall.py" \
-  --template "$SCRIPT_DIR/autoinstall.yaml.in" \
-  --output "$seed/user-data" \
-  --ssh-public-key-file "$private_dir/ssh-public-key" \
-  --wifi-ssid-file "$private_dir/wifi-ssid" \
-  --wifi-password-file "$private_dir/wifi-password" \
-  --password-hash "$password_hash" \
-  --node-name "$NODE_NAME" \
-  --admin-user "$ADMIN_USER" \
-  --timezone "$TIMEZONE" \
-  --system-disk "$SYSTEM_DISK" \
-  --data-disk "$DATA_DISK" \
+render_args=(
+  --template "$SCRIPT_DIR/autoinstall.yaml.in"
+  --ssh-public-key-file "$private_dir/ssh-public-key"
+  --password-hash "$password_hash"
+  --node-name-prefix "$NODE_NAME_PREFIX"
+  --admin-user "$ADMIN_USER"
+  --timezone "$TIMEZONE"
+  --system-disk-policy "$SYSTEM_DISK"
+  --data-disk-policy "$DATA_DISK"
   --data-mount "$DATA_MOUNT"
-chmod 0600 "$seed/user-data"
+  --preferred-min-target-disk-bytes "$PREFERRED_MIN_TARGET_DISK_BYTES"
+  --minimum-system-disk-bytes "$MINIMUM_SYSTEM_DISK_BYTES"
+)
+if [[ "$wifi_enabled" == "true" ]]; then
+  render_args+=(
+    --wifi-ssid-file "$private_dir/wifi-ssid"
+    --wifi-password-file "$private_dir/wifi-password"
+  )
+fi
+"$SCRIPT_DIR/render-autoinstall.py" \
+  "${render_args[@]}" \
+  --output "$seed/user-data"
+"$SCRIPT_DIR/render-autoinstall.py" \
+  "${render_args[@]}" \
+  --interactive-storage \
+  --output "$seed/storage-fallback-user-data"
+chmod 0600 "$seed/user-data" "$seed/storage-fallback-user-data"
 
 cat > "$work/grub.cfg" <<EOF
 if search --no-floppy --file /EFI/ubuntu/.ai-node-install-complete --set=installed; then
@@ -281,12 +326,12 @@ loadfont unicode
 set menu_color_normal=white/black
 set menu_color_highlight=black/light-gray
 
-menuentry "Install $NODE_NAME (ERASES CONFIGURED INTERNAL DISKS)" {
+menuentry "Install $NODE_NAME_PREFIX node (ERASES SELECTED INTERNAL DISKS)" {
     set gfxpayload=keep
     linux /casper/vmlinuz autoinstall ds=nocloud\\;s=file:///cdrom/nocloud/ ---
     initrd /casper/initrd
 }
-menuentry "Boot installed $NODE_NAME" {
+menuentry "Boot installed $NODE_NAME_PREFIX node" {
     search --no-floppy --label AI_NODE_EFI --set=root
     chainloader /EFI/ubuntu/shimx64.efi
 }
@@ -301,12 +346,12 @@ else
     set default=0
 fi
 
-menuentry "Install $NODE_NAME (ERASES CONFIGURED INTERNAL DISKS)" {
+menuentry "Install $NODE_NAME_PREFIX node (ERASES SELECTED INTERNAL DISKS)" {
     set gfxpayload=keep
     linux /casper/vmlinuz iso-scan/filename=\${iso_path} autoinstall ds=nocloud\\;s=file:///cdrom/nocloud/ ---
     initrd /casper/initrd
 }
-menuentry "Boot installed $NODE_NAME" {
+menuentry "Boot installed $NODE_NAME_PREFIX node" {
     search --no-floppy --label AI_NODE_EFI --set=root
     chainloader /EFI/ubuntu/shimx64.efi
 }
@@ -332,22 +377,48 @@ xorriso -osirrox on -indev "$output_tmp" \
   exit 1
 }
 cmp "$seed/user-data" "$work/verify-user-data"
+xorriso -osirrox on -indev "$output_tmp" \
+  -extract /nocloud/storage-fallback-user-data \
+  "$work/verify-storage-fallback-user-data" >/dev/null 2>&1
+cmp "$seed/storage-fallback-user-data" "$work/verify-storage-fallback-user-data"
+xorriso -osirrox on -indev "$output_tmp" \
+  -extract /nocloud/private/tailscale-auth-key \
+  "$work/verify-tailscale-auth-key" >/dev/null 2>&1
+cmp "$seed/private/tailscale-auth-key" "$work/verify-tailscale-auth-key"
+xorriso -osirrox on -indev "$output_tmp" \
+  -extract /nocloud/packages/tailscale.deb \
+  "$work/verify-tailscale.deb" >/dev/null 2>&1
+cmp "$seed/packages/tailscale.deb" "$work/verify-tailscale.deb"
 
+image_sha256=$(shasum -a 256 "$output_tmp" | awk '{print $1}')
 {
   echo "AI node Linux recovery login"
   echo
-  echo "Host: $NODE_NAME.local"
-  echo "SSH/local account: $ADMIN_USER"
-  echo "Password: $controller_password"
-  echo "SSH public-key authentication: enabled"
+  echo "Generated: $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  echo "Host name pattern: $NODE_NAME_PREFIX-ADJECTIVE-NOUN"
+  echo "Local console account: $ADMIN_USER"
+  echo "Local console password: $controller_password"
+  echo "SSH authentication: public key only"
+  echo "SSH public-key fingerprint: $ssh_fingerprint"
   echo
-  echo "System disk: $SYSTEM_DISK"
-  if [[ -n "$DATA_DISK" ]]; then
-    echo "Data disk: $DATA_DISK mounted at $DATA_MOUNT"
+  echo "System disk policy: $SYSTEM_DISK"
+  if [[ "$DATA_DISK" == "auto" ]]; then
+    echo "Data disk policy: all eligible secondary disks mounted at $DATA_MOUNT, ${DATA_MOUNT}2, ..."
+  elif [[ -n "$DATA_DISK" ]]; then
+    echo "Data disk policy: $DATA_DISK mounted at $DATA_MOUNT"
   else
-    echo "Data disk: none"
+    echo "Data disk policy: preserve all secondary disks"
   fi
+  if [[ "$wifi_enabled" == "true" ]]; then
+    echo "Wi-Fi: embedded profile enabled"
+  else
+    echo "Wi-Fi: not configured; Ethernet remains enabled"
+  fi
+  echo "Tailscale: automatic host enrollment enabled"
+  echo "Tailscale package: tailscale $tailscale_version (amd64)"
+  echo "Tailscale DEB SHA-256: $normalized_tailscale_sha256"
   echo "Base ISO SHA-256: $normalized_actual_sha256"
+  echo "Media SHA-256: $image_sha256"
   echo "Installer image: $output"
   echo "Keep this file and installer image private."
 } > "$report_tmp"
@@ -361,4 +432,4 @@ unset controller_password password_hash
 
 echo "Credential-bearing SSH-bootstrap image created:"
 ls -lh "$output" "$recovery_report"
-shasum -a 256 "$output"
+printf 'SHA-256: %s\n' "$image_sha256"

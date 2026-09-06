@@ -19,6 +19,7 @@ An unattended image may contain:
 
 - the configured Wi-Fi password;
 - an account recovery password;
+- a one-off or narrowly scoped infrastructure enrollment key;
 - an SSH public key; and
 - configuration that grants remote administrative access.
 
@@ -31,9 +32,13 @@ credential-bearing images and reports:
 - off public artifact stores; and
 - under physical control when written to USB media.
 
-Never embed SSH private keys, reusable application tokens, password-manager
-sessions, or third-party account credentials. If private media is lost, rotate
-the embedded Wi-Fi and account passwords before trusting another installation.
+Never embed SSH private keys, application tokens, password-manager sessions, or
+broad third-party account credentials. A narrowly scoped infrastructure
+enrollment key may be embedded when unattended bootstrap requires it; prefer a
+one-off, pre-approved, tagged key and delete it from the installed host only
+after enrollment is verified. If private media is lost, rotate every reusable
+embedded Wi-Fi, account, and enrollment credential before trusting another
+installation.
 
 ## Connectivity and recovery
 
@@ -125,6 +130,13 @@ Do not expose a general unauthenticated `SYSTEM` command runner. A maintenance
 broker should authenticate requests, restrict or validate its operation set,
 protect all executable and input paths from unprivileged writes, log activity,
 and return explicit failures.
+
+The Windows Orca devbox intentionally trades process isolation for unattended
+capability: `orca-worker` belongs to the local Administrators group and its
+boot task runs at the highest level. Agent terminals can therefore administer
+the host without an interactive UAC prompt. Only trusted code should run in
+that environment; downloaded scripts, dependencies, hooks, and project tasks
+have the same ability to change the Windows host.
 
 ## Routine and consequential maintenance
 

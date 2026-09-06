@@ -20,13 +20,9 @@ set -a
 set +a
 
 : "${SSH_TARGET:?SSH_TARGET is required}"
-: "${NODE_NAME:?NODE_NAME is required}"
-: "${TAILSCALE_AUTH_KEY_FILE:?TAILSCALE_AUTH_KEY_FILE is required}"
 
 args=(
   --host "$SSH_TARGET"
-  --node-name "$NODE_NAME"
-  --tailscale-auth-key-file "$TAILSCALE_AUTH_KEY_FILE"
 )
 [[ -z "${ENVIRONMENT_NAME:-}" ]] \
   || args+=(--environment-name "$ENVIRONMENT_NAME")

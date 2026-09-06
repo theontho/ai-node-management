@@ -87,6 +87,8 @@ if [[ -n "$interface" ]]; then
     head -n 1)
   [[ -z "$detected_ssid" ]] || ssid=$detected_ssid
 fi
+tailscale_ip=$(tailscale ip -4 2>/dev/null | head -n 1)
+[[ -n "$tailscale_ip" ]] || tailscale_ip=unavailable
 
 failed_units=$(systemctl --failed --no-legend --plain 2>/dev/null |
   awk 'NF { count++ } END { print count + 0 }')
@@ -104,7 +106,8 @@ failed_units=$(systemctl --failed --no-legend --plain 2>/dev/null |
     "$memory_used" "$memory_total" "$swap_used" "$swap_total"
   printf ' Storage: root %s; %s %s\n' \
     "$root_usage" "${data_mount:-data}" "$data_usage"
-  printf ' Network: %s on %s; IPv4 %s\n' "$ssid" "${interface:-unavailable}" "$ip_address"
+  printf ' Network: %s on %s; IPv4 %s; Tailscale %s\n' \
+    "$ssid" "${interface:-unavailable}" "$ip_address" "$tailscale_ip"
   printf ' Health:  %s; failed systemd units %s\n' "$uptime_text" "$failed_units"
   echo "======================================================================"
   echo

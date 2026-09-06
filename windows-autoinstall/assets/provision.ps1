@@ -183,6 +183,70 @@ try {
     }
 }
 
+function Configure-DataDisks {
+    $dataVolumes = @(
+        Get-Volume |
+            Where-Object { $_.FileSystemLabel -match '^AI_NODE_DATA_([0-9]+)$' } |
+            Sort-Object { [int]([regex]::Match($_.FileSystemLabel, '[0-9]+$').Value) }
+    )
+    if ($dataVolumes.Count -eq 0) {
+        return
+    }
+
+    $mountRoot = "C:\DataDisks"
+    New-Item -ItemType Directory -Force -Path $mountRoot | Out-Null
+    $usedLetters = @(
+        Get-Volume |
+            Where-Object { $_.DriveLetter } |
+            ForEach-Object { $_.DriveLetter.ToString().ToUpperInvariant() }
+    )
+    $availableLetters = @(
+        68..90 |
+            ForEach-Object { ([char]$_).ToString() } |
+            Where-Object { $_ -notin $usedLetters }
+    )
+
+    foreach ($volume in $dataVolumes) {
+        $dataIndex = [int](
+            [regex]::Match($volume.FileSystemLabel, '[0-9]+$').Value
+        )
+        $matchingPartitions = @(
+            Get-Partition |
+                Where-Object {
+                    $candidateVolume = $_ | Get-Volume -ErrorAction SilentlyContinue
+                    $candidateVolume -and
+                        $candidateVolume.UniqueId -eq $volume.UniqueId
+                }
+        )
+        if ($matchingPartitions.Count -ne 1) {
+            throw "Expected one partition for installer data volume $($volume.FileSystemLabel)"
+        }
+        $partition = $matchingPartitions[0]
+        $mountPath = Join-Path $mountRoot "Disk-$dataIndex"
+        $folderAccessPath = "$mountPath\"
+        New-Item -ItemType Directory -Force -Path $mountPath | Out-Null
+        $normalizedAccessPaths = @(
+            $partition.AccessPaths |
+                ForEach-Object { $_.TrimEnd([char]'\') }
+        )
+        if ($mountPath -notin $normalizedAccessPaths) {
+            Add-PartitionAccessPath `
+                -DiskNumber $partition.DiskNumber `
+                -PartitionNumber $partition.PartitionNumber `
+                -AccessPath $folderAccessPath
+        }
+
+        if (-not $partition.DriveLetter -and $availableLetters.Count -gt 0) {
+            $driveAccessPath = "$($availableLetters[0]):\"
+            Add-PartitionAccessPath `
+                -DiskNumber $partition.DiskNumber `
+                -PartitionNumber $partition.PartitionNumber `
+                -AccessPath $driveAccessPath
+            $availableLetters = @($availableLetters | Select-Object -Skip 1)
+        }
+    }
+}
+
 function Configure-RemoteAdministration {
     $policy = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"
     New-Item -Path $policy -Force | Out-Null
@@ -297,6 +361,12 @@ function Remove-RemoteSetupSecrets {
 }
 
 try {
+    $configureDataDisks = Join-Path $config "configure-data-disks"
+    if (Test-Path -LiteralPath $configureDataDisks) {
+        Configure-DataDisks
+        Remove-Item -LiteralPath $configureDataDisks -Force
+    }
+
     $wifiProfile = Join-Path $config "wifi-profile.xml"
     $wifiConfigured = if (Test-Path -LiteralPath $wifiProfile) {
         Configure-Wifi

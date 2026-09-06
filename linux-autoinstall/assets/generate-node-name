@@ -1,0 +1,45 @@
+#!/bin/bash
+set -euo pipefail
+
+[[ "$#" -eq 1 ]] || {
+  echo "usage: generate-node-name PREFIX" >&2
+  exit 64
+}
+
+prefix=$1
+[[ "$prefix" =~ ^[a-z0-9]([a-z0-9-]{0,19}[a-z0-9])?$ ]] || {
+  echo "node-name prefix must be a lowercase DNS label of at most 21 characters" >&2
+  exit 64
+}
+
+adjectives=(
+  amber azure black blue bold brave brisk calm
+  coral crisp dusk eager fair fast fleet fresh
+  gold grand green happy hazy ivory jolly keen
+  light lucky lunar merry misty noble north prime
+  proud quick quiet rapid ready red royal sage
+  sharp shy smart solar solid stark still swift
+  vivid warm wild young zesty aqua clear cool
+  deep early level lucid neat pale true white
+)
+nouns=(
+  ant bear bison boar crane crow deer dingo
+  dove eagle finch fox gecko goose hawk heron
+  horse koala lemur lion lynx moose mouse otter
+  owl panda puma quail raven robin seal shark
+  sheep sloth snake stork swan tiger toad trout
+  whale wolf yak zebra cedar cloud comet delta
+  ember field flame frost grove maple ocean orbit
+  pine river stone storm vault wave wind star
+)
+
+random_index() {
+  local upper_bound=$1
+  local value
+  value=$(od -An -N4 -tu4 /dev/urandom)
+  printf '%s\n' "$((value % upper_bound))"
+}
+
+adjective=${adjectives[$(random_index "${#adjectives[@]}")]}
+noun=${nouns[$(random_index "${#nouns[@]}")]}
+printf '%s-%s-%s\n' "$prefix" "$adjective" "$noun"

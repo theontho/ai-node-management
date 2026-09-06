@@ -1,4 +1,4 @@
-PasswordAuthentication yes
+PasswordAuthentication no
 KbdInteractiveAuthentication no
 PermitEmptyPasswords no
 PermitRootLogin no

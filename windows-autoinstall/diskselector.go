@@ -154,7 +154,7 @@ func main() {
 	excludeVolume := flag.String("exclude-volume", "", "installer volume such as D:")
 	answerTemplate := flag.String("answer-template", "", "unattended answer template")
 	answerOutput := flag.String("answer-output", "", "rendered unattended answer path")
-	wipePlanOutput := flag.String("wipe-plan-output", "", "DiskPart plan for secondary internal disks")
+	secondaryPlanOutput := flag.String("secondary-plan-output", "", "DiskPart plan for secondary internal disks")
 	computerNamePrefix := flag.String("computer-name-prefix", "", "prefix for the generated computer name")
 	preferredMinBytes := flag.Uint64("preferred-min-bytes", 60_000_000_000, "preferred minimum target size")
 	flag.Parse()
@@ -162,11 +162,11 @@ func main() {
 	if *excludeVolume == "" ||
 		*answerTemplate == "" ||
 		*answerOutput == "" ||
-		*wipePlanOutput == "" ||
+		*secondaryPlanOutput == "" ||
 		*computerNamePrefix == "" {
 		fmt.Fprintln(
 			os.Stderr,
-			"disk selector requires the installer volume, computer-name prefix, answer paths, and wipe-plan path",
+			"disk selector requires the installer volume, computer-name prefix, answer paths, and secondary-plan path",
 		)
 		os.Exit(1)
 	}
@@ -247,13 +247,13 @@ func main() {
 	}
 	if len(candidates) > 1 {
 		if err := os.WriteFile(
-			*wipePlanOutput,
-			[]byte(renderSecondaryWipePlan(candidates, target.index)),
+			*secondaryPlanOutput,
+			[]byte(renderSecondaryDiskPlan(candidates, target.index)),
 			0600,
 		); err != nil {
-			fallback("write secondary-disk wipe plan: %v", err)
+			fallback("write secondary-disk preparation plan: %v", err)
 		}
-	} else if err := os.Remove(*wipePlanOutput); err != nil && !os.IsNotExist(err) {
-		fallback("remove stale secondary-disk wipe plan: %v", err)
+	} else if err := os.Remove(*secondaryPlanOutput); err != nil && !os.IsNotExist(err) {
+		fallback("remove stale secondary-disk preparation plan: %v", err)
 	}
 }

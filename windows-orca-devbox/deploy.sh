@@ -120,9 +120,10 @@ Host: $pairing_address
 Orca environment: $environment_name
 Runtime account: orca-worker
 Runtime account password: $worker_password
-Runtime account privileges: standard local user; not an administrator
+Runtime account privileges: local administrator; boot task runs at highest level
 Runtime endpoint: ws://$pairing_address:$port
 Workspace root: C:\\Orca\\workspaces
+Dashboard firewall: TCP 8765 from LocalSubnet and 100.64.0.0/10
 
 This report contains a credential. Keep it private.
 EOF

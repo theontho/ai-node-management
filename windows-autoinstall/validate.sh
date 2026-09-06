@@ -210,9 +210,9 @@ assert "--preferred-min-bytes 60000000000" in prepare
 assert '--computer-name-prefix "win"' in prepare
 assert '--exclude-volume "%MEDIA%"' in prepare
 assert '--answer-template "%MEDIA%\\ai-node\\autounattend.xml.in"' in prepare
-assert "ai-node-wipe-secondary.txt" in prepare
+assert "ai-node-secondary-disks.txt" in prepare
 assert "findstr" not in prepare
-assert 'if not exist "X:\\ai-node-wipe-secondary.txt"' in prepare
+assert 'if not exist "X:\\ai-node-secondary-disks.txt"' in prepare
 assert ":no_secondary_disks" in prepare
 assert "ordinary Windows Setup" in prepare
 assert "BypassTPMCheck" in prepare
@@ -233,6 +233,13 @@ assert "msiexec.exe" in provision
 assert "Add-WindowsCapability" not in provision
 assert "Install-Tailscale" in provision
 assert "Connect-Tailscale" in provision
+assert "Configure-DataDisks" in provision
+assert "'^AI_NODE_DATA_([0-9]+)$'" in provision
+assert '"C:\\DataDisks"' in provision
+assert "Add-PartitionAccessPath" in provision
+assert "-AccessPath $folderAccessPath" in provision
+assert "-AccessPath $driveAccessPath" in provision
+assert 'Join-Path $config "configure-data-disks"' in provision
 assert '"--auth-key=file:@@AUTH_KEY@@"' in provision
 assert '"--hostname=@@HOSTNAME@@"' in provision
 assert "--unattended" in provision
@@ -303,6 +310,8 @@ assert "must either both be present or both be absent" in build
 assert 'install -m 0600 "$openssh_msi"' in build
 assert 'install -m 0600 "$tailscale_msi"' in build
 assert 'install -m 0600 "$private_dir/tailscale-auth-key"' in build
+assert 'printf \'enabled\\n\' > "$config/configure-data-disks"' in build
+assert "Secondary storage: every eligible non-system internal disk" in build
 assert "wimlib-imagex split" in build
 assert "install*.swm" in build
 assert "--ref=$install_ref" in build

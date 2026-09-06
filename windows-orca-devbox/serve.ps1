@@ -1,6 +1,14 @@
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
+$identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+$principal = [Security.Principal.WindowsPrincipal]::new($identity)
+if (-not $principal.IsInRole(
+    [Security.Principal.WindowsBuiltInRole]::Administrator
+)) {
+    throw "Orca runtime must start with an elevated administrator token"
+}
+
 $root = "C:\ProgramData\OrcaDevbox"
 $config = Get-Content -LiteralPath (Join-Path $root "config.json") -Raw |
     ConvertFrom-Json

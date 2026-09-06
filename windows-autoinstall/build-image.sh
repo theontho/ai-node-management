@@ -301,6 +301,7 @@ copy_windows_text "$SCRIPT_DIR/assets/winpeshl.ini" "$generated/ai-node/winpeshl
 copy_windows_text "$SCRIPT_DIR/assets/ei.cfg" "$generated/sources/ei.cfg"
 copy_windows_text "$rendered/SetupComplete.cmd" "$oem/\$\$/Setup/Scripts/SetupComplete.cmd"
 copy_windows_text "$rendered/provision.ps1" "$host_root/provision.ps1"
+printf 'enabled\n' > "$config/configure-data-disks"
 if [[ "$wifi_enabled" == "true" ]]; then
   install -m 0600 "$private_dir/wifi-ssid" "$config/wifi-ssid"
 fi
@@ -429,6 +430,8 @@ cmp "$oem/\$\$/Setup/Scripts/SetupComplete.cmd" \
   "$verify_mount/sources/\$OEM\$/\$\$/Setup/Scripts/SetupComplete.cmd"
 cmp "$host_root/provision.ps1" \
   "$verify_mount/sources/\$OEM\$/\$1/ProgramData/$app_prefix/provision.ps1"
+cmp "$config/configure-data-disks" \
+  "$verify_mount/sources/\$OEM\$/\$1/ProgramData/$app_prefix/config/configure-data-disks"
 if [[ "$wifi_enabled" == "true" ]]; then
   cmp "$config/wifi-ssid" \
     "$verify_mount/sources/\$OEM\$/\$1/ProgramData/$app_prefix/config/wifi-ssid"
@@ -475,6 +478,7 @@ Windows unattended installer recovery information
 
 Generated: $(date -u '+%Y-%m-%dT%H:%M:%SZ')
 Target: General x64 compute node; automatic internal-disk selection
+Secondary storage: every eligible non-system internal disk becomes an empty NTFS data volume
 Windows edition: Windows 11 Pro
 Host name pattern: $computer_name_prefix-ADJECTIVE-NOUN
 Administrator account: $admin_username
