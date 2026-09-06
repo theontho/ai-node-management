@@ -12,6 +12,7 @@ sidecar on Ubuntu.
 | [`windows-autoinstall/`](windows-autoinstall/) | Unattended Windows 11 Pro x64 installer with safe disk selection, Wi-Fi, OpenSSH, and remote administrator provisioning |
 | [`windows-orca-devbox/`](windows-orca-devbox/) | Existing Windows host deployment for an associated, unprivileged Orca runtime and native development toolchain |
 | [`orca-node/`](orca-node/) | Docker Compose appliance packaging Orca with an official Tailscale sidecar, plus a discovery-only coding-agent benchmark suite |
+| [`system-inventory/`](system-inventory/) | Cross-platform, credential-safe hardware, storage, network, service, and agent-tool inventory dashboard generator |
 | [`docs/`](docs/) | Architecture, security boundaries, and cross-platform installer guidance |
 
 Each component keeps machine-specific configuration under an ignored

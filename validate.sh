@@ -21,6 +21,7 @@ done
 "$ROOT/linux-autoinstall/validate.sh"
 "$ROOT/windows-autoinstall/validate.sh"
 "$ROOT/windows-orca-devbox/validate.sh"
+bash "$ROOT/system-inventory/validate.sh"
 
 for script in \
   "$ROOT"/orca-node/*.sh \

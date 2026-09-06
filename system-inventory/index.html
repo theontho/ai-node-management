@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#090e1a">
+  <title>AI Node Inventory</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <style>
+    :root {
+      --bg:#090e1a; --panel:#111827; --panel2:#172033; --line:#26334b;
+      --text:#edf3ff; --muted:#93a4bf; --mint:#79e7c4; --blue:#7aa7ff;
+      --amber:#f6c76b; --red:#ff7e8a; --radius:17px;
+    }
+    * { box-sizing:border-box }
+    html { scroll-behavior:smooth }
+    body {
+      margin:0; color:var(--text);
+      background:radial-gradient(circle at 88% -8%,rgba(122,167,255,.15),transparent 28rem),
+        radial-gradient(circle at 14% 18%,rgba(121,231,196,.07),transparent 25rem),var(--bg);
+      font:14px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+    }
+    .shell { display:grid; grid-template-columns:235px minmax(0,1fr); min-height:100vh }
+    aside {
+      position:sticky; top:0; height:100vh; padding:27px 20px; border-right:1px solid var(--line);
+      background:rgba(9,14,26,.88); backdrop-filter:blur(18px);
+    }
+    .brand { display:flex; align-items:center; gap:11px; margin-bottom:28px }
+    .brand img { width:37px; height:37px }
+    .brand strong { display:block; letter-spacing:.07em }
+    .brand small,.muted { color:var(--muted) }
+    nav { display:grid; gap:5px }
+    nav a { color:var(--muted); text-decoration:none; padding:9px 11px; border-radius:9px }
+    nav a:hover,nav a.active { color:var(--text); background:var(--panel2) }
+    .aside-note { position:absolute; left:20px; right:20px; bottom:22px; color:var(--muted); font-size:11px }
+    main { min-width:0; width:100%; max-width:1480px; padding:38px clamp(22px,4vw,62px) 70px }
+    header { display:flex; justify-content:space-between; align-items:end; gap:24px; margin-bottom:28px }
+    .eyebrow { color:var(--mint); text-transform:uppercase; letter-spacing:.16em; font-size:11px; font-weight:800 }
+    h1 { margin:4px 0; font-size:clamp(36px,5vw,62px); line-height:1; letter-spacing:-.045em }
+    h2 { margin:0; font-size:25px }
+    h3 { margin:0 0 12px; font-size:17px }
+    p { margin:7px 0 }
+    .search {
+      width:min(350px,100%); color:var(--text); background:var(--panel); border:1px solid var(--line);
+      border-radius:11px; padding:10px 13px; outline:0;
+    }
+    .search:focus { border-color:var(--blue); box-shadow:0 0 0 3px rgba(122,167,255,.12) }
+    section { scroll-margin-top:22px; margin:44px 0 }
+    .section-head { display:flex; justify-content:space-between; align-items:end; gap:20px; margin-bottom:15px }
+    .section-head p { color:var(--muted); margin:2px 0 0 }
+    .grid { display:grid; gap:15px }
+    .stats { grid-template-columns:repeat(4,minmax(0,1fr)) }
+    .two { grid-template-columns:repeat(2,minmax(0,1fr)) }
+    .three { grid-template-columns:repeat(3,minmax(0,1fr)) }
+    .card {
+      min-width:0; padding:19px; border:1px solid var(--line); border-radius:var(--radius);
+      background:linear-gradient(145deg,rgba(23,32,51,.98),rgba(14,21,36,.98));
+      box-shadow:0 18px 45px rgba(0,0,0,.2);
+    }
+    .stat .label { color:var(--muted); font-size:12px }
+    .stat .value { margin-top:3px; font-size:27px; font-weight:780; letter-spacing:-.03em }
+    .stat .detail { color:var(--mint); margin-top:7px; overflow-wrap:anywhere }
+    .cap-list { display:grid; gap:10px }
+    .cap-row { display:flex; justify-content:space-between; gap:20px; padding-bottom:9px; border-bottom:1px solid var(--line) }
+    .cap-row:last-child { border:0; padding-bottom:0 }
+    .cap-row span:first-child { color:var(--muted) }
+    .cap-row strong { text-align:right; overflow-wrap:anywhere }
+    .tag {
+      display:inline-flex; align-items:center; gap:6px; margin:3px 4px 3px 0; padding:4px 9px;
+      border:1px solid var(--line); border-radius:999px; color:#c8d5e8; background:rgba(9,14,26,.45); font-size:12px;
+    }
+    .dot { width:7px; height:7px; border-radius:50%; background:var(--mint) }
+    .dot.off { background:var(--muted) }
+    .dot.warn { background:var(--amber) }
+    table { width:100%; border-collapse:collapse }
+    th,td { padding:10px 9px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top }
+    th { color:var(--muted); font-size:10px; text-transform:uppercase; letter-spacing:.1em }
+    tr:last-child td { border:0 }
+    td:last-child,th:last-child { text-align:right }
+    .metric { color:var(--mint); font-variant-numeric:tabular-nums }
+    .volume { margin-top:14px }
+    .volume-head,.bar-label { display:flex; justify-content:space-between; gap:15px }
+    .volume-head strong { font-size:18px }
+    .bar { height:9px; margin:12px 0 6px; overflow:hidden; border-radius:999px; background:#28344a }
+    .bar i { display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg,var(--mint),var(--blue)) }
+    .bar i.danger { background:linear-gradient(90deg,var(--amber),var(--red)) }
+    .bar-label { color:var(--muted); font-size:11px }
+    .folder-list { display:grid; gap:9px; margin-top:17px }
+    .folder-row { display:grid; grid-template-columns:minmax(100px,1.3fr) 1fr auto; gap:10px; align-items:center }
+    .folder-row a { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text); text-decoration:none }
+    .folder-row a:hover { color:var(--mint) }
+    .folder-row.subdir { padding-left:17px; opacity:.9 }
+    .folder-row.subdir a::before { content:"↳ "; color:var(--muted) }
+    .mini-bar { height:6px; overflow:hidden; border-radius:999px; background:#263148 }
+    .mini-bar i { display:block; height:100%; border-radius:inherit; background:var(--blue) }
+    .size { color:var(--muted); font-size:11px; font-variant-numeric:tabular-nums }
+    .warning { border-left:3px solid var(--amber) }
+    .good { border-left:3px solid var(--mint) }
+    details { margin-top:13px; border-top:1px solid var(--line); padding-top:10px }
+    summary { cursor:pointer; color:var(--blue); font-weight:700 }
+    .private { color:var(--amber); font-weight:700 }
+    .empty { padding:28px; color:var(--muted); text-align:center }
+    .hidden { display:none!important }
+    code { color:#cfdbef }
+    footer { padding-top:21px; border-top:1px solid var(--line); color:var(--muted); font-size:12px }
+    @media (max-width:1000px) {
+      .shell { grid-template-columns:1fr }
+      aside { position:static; height:auto; padding:18px 22px; border:0; border-bottom:1px solid var(--line) }
+      .brand { margin-bottom:12px }
+      nav { display:flex; overflow-x:auto }
+      nav a { white-space:nowrap }
+      .aside-note { display:none }
+      .stats { grid-template-columns:repeat(2,minmax(0,1fr)) }
+      header { align-items:stretch; flex-direction:column }
+    }
+    @media (max-width:700px) {
+      main { padding:27px 15px 48px }
+      .stats,.two,.three { grid-template-columns:1fr }
+      .section-head { align-items:start; flex-direction:column }
+      .table-wrap { overflow-x:auto }
+      .folder-row { grid-template-columns:minmax(0,1fr) auto }
+      .mini-bar { display:none }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside>
+      <div class="brand"><img src="favicon.svg" alt=""><div><strong>AI NODE</strong><small>System inventory</small></div></div>
+      <nav>
+        <a href="#overview" class="active">Overview</a>
+        <a href="#hardware">Hardware</a>
+        <a href="#storage">Storage</a>
+        <a href="#storage-scan">Largest items</a>
+        <a href="#network">Network & services</a>
+        <a href="#software">Software</a>
+        <a href="#notes">Coverage</a>
+      </nav>
+      <div id="aside-note" class="aside-note">Loading local snapshot...</div>
+    </aside>
+    <main>
+      <header>
+        <div><div class="eyebrow">Managed node · local inventory</div><h1 id="hostname">AI node</h1><p id="subtitle" class="muted"></p></div>
+        <input id="search" class="search" type="search" placeholder="Search inventory... (press /)" aria-label="Search inventory">
+      </header>
+      <section id="overview">
+        <div id="stats" class="grid stats"></div>
+        <div id="identity" class="grid two" style="margin-top:15px"></div>
+      </section>
+      <section id="hardware">
+        <div class="section-head"><div><h2>Hardware</h2><p>Locally reported compute and physical devices.</p></div></div>
+        <div id="hardware-grid" class="grid two"></div>
+      </section>
+      <section id="storage">
+        <div class="section-head"><div><h2>Storage</h2><p>Mounted filesystems and physical block devices.</p></div></div>
+        <div id="volumes" class="grid three"></div>
+        <div id="physical-storage" class="card table-wrap searchable" style="margin-top:15px"></div>
+      </section>
+      <section id="storage-scan">
+        <div class="section-head"><div><h2>Largest storage items</h2><p>One-pass logical sizing, including the largest directories and files on each volume.</p></div></div>
+        <div id="storage-scan-grid" class="grid"></div>
+      </section>
+      <section id="network">
+        <div class="section-head"><div><h2>Network & services</h2><p>Interface capabilities and node-management service state; addresses are omitted.</p></div></div>
+        <div class="grid two">
+          <div id="interfaces" class="card table-wrap searchable"></div>
+          <div id="services" class="card searchable"></div>
+          <div id="accounts" class="card table-wrap searchable"></div>
+        </div>
+      </section>
+      <section id="software">
+        <div class="section-head"><div><h2>Software & agent tools</h2><p>Detected command-line runtimes relevant to operating this node.</p></div></div>
+        <div id="tools" class="card table-wrap searchable"></div>
+      </section>
+      <section id="notes">
+        <div class="section-head"><div><h2>Coverage & privacy</h2><p>How to interpret and safely share this point-in-time report.</p></div></div>
+        <div class="grid two">
+          <article class="card searchable warning"><h3>Private inventory</h3><p id="private-warning" class="private"></p></article>
+          <article class="card searchable"><h3>Deliberately omitted</h3><div id="omitted"></div></article>
+          <article class="card searchable"><h3>Collection behavior</h3><p class="muted">The collector uses read-only operating-system interfaces. It records paths and logical sizes but never opens file contents. Missing permissions or unavailable platform tools are reported rather than fabricated.</p></article>
+          <article id="warnings" class="card searchable"></article>
+        </div>
+      </section>
+      <footer id="footer"></footer>
+    </main>
+  </div>
+  <script src="inventory-data.js"></script>
+  <script>
+    (() => {
+      const data = window.SYSTEM_INVENTORY;
+      const esc = value => String(value ?? 'Unknown').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+      const size = bytes => {
+        if (bytes === null || bytes === undefined) return 'Unknown';
+        const units = ['B','KiB','MiB','GiB','TiB','PiB']; let value = Number(bytes), index = 0;
+        while (value >= 1024 && index < units.length - 1) { value /= 1024; index++; }
+        return `${value.toFixed(index > 3 ? 2 : index ? 1 : 0)} ${units[index]}`;
+      };
+      const duration = seconds => {
+        if (seconds === null || seconds === undefined) return 'Unknown';
+        const days = Math.floor(seconds / 86400), hours = Math.floor(seconds % 86400 / 3600);
+        return days ? `${days}d ${hours}h` : `${hours}h`;
+      };
+      const row = (label, value) => `<div class="cap-row"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`;
+      const table = (title, headers, rows) => `<h3>${esc(title)}</h3><table><thead><tr>${headers.map(value => `<th>${esc(value)}</th>`).join('')}</tr></thead><tbody>${rows.length ? rows.map(values => `<tr>${values.map(value => `<td>${esc(value)}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${headers.length}" class="muted">None detected</td></tr>`}</tbody></table>`;
+      const fileHref = path => encodeURI(`file:///${String(path).replaceAll('\\','/')}`);
+      const cpu = data.cpu?.[0] || {};
+      const gpu = data.gpus?.[0] || {};
+      const system = data.system || {};
+      const node = data.node || {hostname:'Unknown node',platform:'unknown'};
+      const physicalTotal = (data.physicalStorage || []).reduce((sum, disk) => sum + Number(disk.sizeBytes || 0), 0);
+      document.title = `${node.hostname} / System Inventory`;
+      document.querySelector('#hostname').textContent = node.hostname;
+      document.querySelector('#subtitle').textContent = `${system.osName || 'Unknown operating system'} · ${system.architecture || 'Unknown architecture'} · generated ${new Date(data.generatedAt).toLocaleString()}`;
+      document.querySelector('#aside-note').innerHTML = `Schema ${data.schemaVersion}<br>${esc(new Date(data.generatedAt).toLocaleString())}`;
+      document.querySelector('#stats').innerHTML = [
+        ['Processor', `${cpu.cores ?? '?'}C / ${cpu.threads ?? '?'}T`, cpu.name],
+        ['Memory', size(data.memory?.totalBytes), data.memory?.modules?.length ? `${data.memory.modules.length} module(s)` : 'Installed physical memory'],
+        ['Graphics', gpu.memoryBytes ? size(gpu.memoryBytes) : `${data.gpus?.length || 0} adapter(s)`, gpu.name || 'No GPU detected'],
+        ['Physical storage', size(physicalTotal), `${data.physicalStorage?.length || 0} device(s) · ${data.volumes?.length || 0} mounted volume(s)`]
+      ].map(item => `<article class="card stat searchable"><div class="label">${esc(item[0])}</div><div class="value">${esc(item[1])}</div><div class="detail">${esc(item[2])}</div></article>`).join('');
+      document.querySelector('#identity').innerHTML = `
+        <article class="card searchable good"><h3>System identity</h3><div class="cap-list">
+          ${row('Operating system', system.osName)}${row('Version / build', [system.osVersion,system.osBuild].filter(Boolean).join(' · '))}
+          ${row('Kernel', system.kernel)}${row('Architecture', system.architecture)}${row('Uptime', duration(system.uptimeSeconds))}
+          ${row('Current account', system.currentAccount)}
+        </div></article>
+        <article class="card searchable"><h3>Platform</h3><div class="cap-list">
+          ${row('Manufacturer', system.manufacturer)}${row('Model', system.model)}${row('Firmware', system.firmware)}
+          ${row('System serial', system.systemSerial)}${row('Board serial', system.boardSerial)}
+          ${row('Collector platform', node.platform)}
+        </div></article>`;
+      const cpuRows = (data.cpu || []).map(item => [item.name, `${item.cores ?? '?'} cores / ${item.threads ?? '?'} threads`, item.maxMhz ? `${item.maxMhz} MHz` : '']);
+      const gpuRows = (data.gpus || []).map(item => [item.name, size(item.memoryBytes), item.driver || 'Unknown']);
+      document.querySelector('#hardware-grid').innerHTML = `
+        <article class="card table-wrap searchable">${table('Processors',['Model','Topology','Maximum'],cpuRows)}</article>
+        <article class="card table-wrap searchable">${table('Graphics adapters',['Model','Memory','Driver'],gpuRows)}</article>
+        <article class="card table-wrap searchable">${table('Memory modules',['Capacity','Configured speed','Type'],(data.memory?.modules || []).map(item => [size(item.capacityBytes),item.speedMts ? `${item.speedMts} MT/s` : 'Unknown',item.type || 'Unknown']))}</article>`;
+      const scans = data.storageScan?.volumes || [];
+      const scanByMount = new Map(scans.map(scan => [scan.mount,scan]));
+      document.querySelector('#volumes').innerHTML = (data.volumes || []).map(volume => {
+        const used = Number(volume.usedBytes || 0), capacity = Number(volume.capacityBytes || 0), percent = capacity ? used / capacity * 100 : 0;
+        const top = (scanByMount.get(volume.mount)?.largestTopLevelItems || []).filter(item => item.kind !== 'file').slice(0,7);
+        const topMaximum = Math.max(...top.map(item => Number(item.bytes)),1);
+        const folders = top.length ? `<div class="folder-list">${top.map(item => {
+          const children = (item.significantSubdirectories || []).slice(0,5).map(child => {
+            const name = String(child.path).split(/[\\/]/).filter(Boolean).pop() || child.path;
+            return `<div class="folder-row subdir"><a href="${esc(fileHref(child.path))}" title="${esc(child.path)}">${esc(name)}</a><span class="mini-bar"><i style="width:${Number(child.bytes)/Number(item.bytes || 1)*100}%"></i></span><span class="size">${esc(size(child.bytes))}</span></div>`;
+          }).join('');
+          return `<div class="folder-row"><a href="${esc(fileHref(item.path))}" title="${esc(item.path)}">${esc(item.path)}</a><span class="mini-bar"><i style="width:${Number(item.bytes)/topMaximum*100}%"></i></span><span class="size">${esc(size(item.bytes))}</span></div>${children}`;
+        }).join('')}</div>` : '';
+        return `<article class="card volume searchable"><div class="volume-head"><div><strong>${esc(volume.mount)}</strong><div class="muted">${esc(volume.label || 'Unlabeled')} · ${esc(volume.fileSystem || 'Unknown filesystem')}</div></div><strong>${esc(size(capacity))}</strong></div><div class="bar"><i class="${percent > 90 ? 'danger' : ''}" style="width:${Math.min(100,percent)}%"></i></div><div class="bar-label"><span>${esc(size(used))} used · ${percent.toFixed(1)}%</span><span>${esc(size(volume.freeBytes))} free</span></div>${folders}</article>`;
+      }).join('') || '<div class="card empty">No mounted volumes detected.</div>';
+      document.querySelector('#physical-storage').innerHTML = table('Physical storage',['Model','Serial','Connection','Capacity','State'],(data.physicalStorage || []).map(disk => [disk.name,disk.serial,disk.bus || disk.type,size(disk.sizeBytes),disk.status]));
+      document.querySelector('#storage-scan-grid').innerHTML = scans.length ? scans.map(scan => `
+        <article class="card searchable">
+          <h3>${esc(scan.mount)} · ${esc(size(scan.bytesScanned))}</h3>
+          <p class="muted">${esc(Number(scan.filesScanned).toLocaleString())} files sized · ${esc(scan.errors)} inaccessible entries</p>
+          ${table('Largest directories',['Path','Logical size','Files'],(scan.largestDirectories || []).map(item => [item.path,size(item.bytes),Number(item.files).toLocaleString()]))}
+          <details><summary>Top-level usage</summary>${table('Top-level items',['Path','Logical size','Files'],(scan.largestTopLevelItems || []).map(item => [item.path,size(item.bytes),Number(item.files).toLocaleString()]))}</details>
+          <details><summary>Largest individual files</summary>${table('Largest files',['Path','Logical size'],(scan.largestFiles || []).map(item => [item.path,size(item.bytes)]))}</details>
+        </article>`).join('') : '<div class="card empty">Storage sizing was skipped for this snapshot.</div>';
+      document.querySelector('#interfaces').innerHTML = table('Physical interfaces',['Interface','Link','Speed','MAC address','IP addresses'],(data.network || []).map(item => [item.name,item.state,item.speedMbps ? `${item.speedMbps} Mbps` : 'Unknown',item.macAddress,(item.ipAddresses || []).join(', ')]));
+      document.querySelector('#services').innerHTML = `<h3>Management services</h3>${(data.services || []).map(item => `<span class="tag"><span class="dot ${/active|running/i.test(item.state) ? '' : 'off'}"></span>${esc(item.name)} · ${esc(item.state)}</span>`).join('') || '<p class="muted">No selected services detected.</p>'}`;
+      document.querySelector('#accounts').innerHTML = table('Local accounts',['Name','Full name','Identifier','State'],(data.accounts || []).map(item => [item.name,item.fullName,item.sid || `uid ${item.uid}`,item.disabled ? 'disabled' : item.locked ? 'locked' : 'enabled']));
+      document.querySelector('#tools').innerHTML = table('Detected runtimes',['Tool','Version'],(data.tools || []).map(item => [item.name,item.version]));
+      document.querySelector('#private-warning').textContent = data.dataHandling?.warning || 'Treat this report as private.';
+      document.querySelector('#omitted').innerHTML = (data.dataHandling?.omitted || []).map(item => `<span class="tag">${esc(item)}</span>`).join('');
+      document.querySelector('#warnings').innerHTML = `<h3>Collection warnings</h3>${data.warnings?.length ? `<ul class="muted">${data.warnings.map(item => `<li>${esc(item)}</li>`).join('')}</ul>` : '<p class="muted">No collection warnings.</p>'}`;
+      document.querySelector('#footer').textContent = `Generated locally on ${new Date(data.generatedAt).toLocaleString()}. This report does not update automatically.`;
+      const input = document.querySelector('#search');
+      const cards = [...document.querySelectorAll('.searchable')];
+      input.addEventListener('input', () => {
+        const query = input.value.trim().toLowerCase();
+        cards.forEach(card => card.classList.toggle('hidden', query && !card.textContent.toLowerCase().includes(query)));
+      });
+      document.addEventListener('keydown', event => {
+        if (event.key === '/' && document.activeElement !== input) { event.preventDefault(); input.focus(); }
+        if (event.key === 'Escape' && document.activeElement === input) { input.value=''; input.dispatchEvent(new Event('input')); input.blur(); }
+      });
+      const links = [...document.querySelectorAll('nav a')];
+      const observer = new IntersectionObserver(entries => {
+        const visible = entries.filter(entry => entry.isIntersecting).sort((a,b) => b.intersectionRatio-a.intersectionRatio)[0];
+        if (visible) links.forEach(link => link.classList.toggle('active', link.hash === `#${visible.target.id}`));
+      }, {rootMargin:'-20% 0px -65%',threshold:[0,.2,.6]});
+      links.map(link => document.querySelector(link.hash)).filter(Boolean).forEach(section => observer.observe(section));
+    })();
+  </script>
+</body>
+</html>
