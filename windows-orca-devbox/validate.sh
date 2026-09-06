@@ -12,7 +12,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-for script in "$SCRIPT_DIR/deploy.sh" "$SCRIPT_DIR/validate.sh"; do
+for script in "$SCRIPT_DIR/connect-rdp.sh" "$SCRIPT_DIR/deploy.sh" "$SCRIPT_DIR/validate.sh"; do
   bash -n "$script"
   shellcheck "$script"
 done
@@ -37,6 +37,7 @@ root = Path(sys.argv[1])
 install = (root / "install.ps1").read_text()
 serve = (root / "serve.ps1").read_text()
 deploy = (root / "deploy.sh").read_text()
+connect_rdp = (root / "connect-rdp.sh").read_text()
 readme = (root / "README.md").read_text()
 
 for value in (
@@ -55,11 +56,18 @@ assert "must not be a member of the local Administrators group" in install
 assert "Grant-BatchLogonRight" in install
 assert "SeBatchLogonRight" in install
 assert '"/areas", "USER_RIGHTS"' in install
-assert '"StablyAI.Orca"' in install
-assert '"Git.Git"' in install
-assert '"OpenJS.NodeJS.LTS"' in install
-assert '"Python.Python.3.13"' in install
-assert '"GitHub.cli"' in install
+assert "Get-VerifiedInstaller" in install
+assert "Get-FileHash" in install
+assert "checksum mismatch" in install
+assert "Start-Process" in install
+assert "-Wait" in install
+assert "-PassThru" in install
+assert "orca-windows-setup.exe" in install
+assert "Git-2.55.0.3-64-bit.exe" in install
+assert "node-v$nodeVersion-x64.msi" in install
+assert "python-$pythonVersion-amd64.exe" in install
+assert "gh_$($githubCliVersion)_windows_amd64.msi" in install
+assert "winget.exe" not in install
 assert "RemoteAddress LocalSubnet" in install
 assert "Stop-ScheduledTask" in install
 assert "Register-ScheduledTask" in install
@@ -78,6 +86,13 @@ assert "orca environment add" in deploy
 assert "orca environment rm" in deploy
 assert 'orca status --environment "$environment_name"' in deploy
 assert "chmod 0600" in deploy
+assert "sdl-freerdp" in connect_rdp
+assert "/args-from:env:RDP_ARGS" in connect_rdp
+assert "/cert:ignore" in connect_rdp
+assert "-clipboard" in connect_rdp
+assert "confirm_tailscale" in connect_rdp
+assert "8#$permissions & 077" in connect_rdp
+assert "Administrator password: " in connect_rdp
 assert "worker_password" not in readme
 assert "does not receive administrator rights" in readme
 PY

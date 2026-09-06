@@ -8,10 +8,13 @@ DEFAULT_IMAGE_SIZE_GB=12
 usage() {
   cat >&2 <<'EOF'
 usage: build-image.sh \
-  --base-iso FILE \
-  --base-sha256 HEX \
+  (--base-iso FILE --base-sha256 HEX | --base-dir DIR) \
   --config FILE \
   --private-dir DIR \
+  --openssh-msi FILE \
+  --openssh-sha256 HEX \
+  --tailscale-msi FILE \
+  --tailscale-sha256 HEX \
   --output FILE \
   [--recovery-report FILE] \
   [--image-size-gb INTEGER]
@@ -21,8 +24,13 @@ EOF
 
 base_iso=
 base_sha256=
+base_dir=
 config_file=
 private_dir=
+openssh_msi=
+openssh_sha256=
+tailscale_msi=
+tailscale_sha256=
 output=
 recovery_report=
 image_size_gb=$DEFAULT_IMAGE_SIZE_GB
@@ -31,8 +39,13 @@ while [[ "$#" -gt 0 ]]; do
   case "$1" in
     --base-iso) base_iso=$2; shift 2 ;;
     --base-sha256) base_sha256=$2; shift 2 ;;
+    --base-dir) base_dir=$2; shift 2 ;;
     --config) config_file=$2; shift 2 ;;
     --private-dir) private_dir=$2; shift 2 ;;
+    --openssh-msi) openssh_msi=$2; shift 2 ;;
+    --openssh-sha256) openssh_sha256=$2; shift 2 ;;
+    --tailscale-msi) tailscale_msi=$2; shift 2 ;;
+    --tailscale-sha256) tailscale_sha256=$2; shift 2 ;;
     --output) output=$2; shift 2 ;;
     --recovery-report) recovery_report=$2; shift 2 ;;
     --image-size-gb) image_size_gb=$2; shift 2 ;;
@@ -40,8 +53,18 @@ while [[ "$#" -gt 0 ]]; do
   esac
 done
 
-[[ -f "$base_iso" && -f "$config_file" && -d "$private_dir" && -n "$output" ]] || usage
-[[ "$base_sha256" =~ ^[0-9a-fA-F]{64}$ ]] || usage
+[[ -f "$config_file" &&
+  -d "$private_dir" &&
+  -f "$openssh_msi" &&
+  -f "$tailscale_msi" &&
+  -n "$output" ]] || usage
+if [[ -n "$base_dir" ]]; then
+  [[ -d "$base_dir" && -z "$base_iso" && -z "$base_sha256" ]] || usage
+else
+  [[ -f "$base_iso" && "$base_sha256" =~ ^[0-9a-fA-F]{64}$ ]] || usage
+fi
+[[ "$openssh_sha256" =~ ^[0-9a-fA-F]{64}$ ]] || usage
+[[ "$tailscale_sha256" =~ ^[0-9a-fA-F]{64}$ ]] || usage
 [[ "$image_size_gb" =~ ^[0-9]+$ && "$image_size_gb" -ge 10 ]] || usage
 
 if [[ -z "$recovery_report" ]]; then
@@ -60,8 +83,8 @@ for command_name in diskutil go hdiutil openssl python3 rsync shasum ssh-keygen 
 done
 
 python3 "$SCRIPT_DIR/config.py" validate --config "$config_file"
-computer_name=$(
-  python3 "$SCRIPT_DIR/config.py" get --config "$config_file" --key COMPUTER_NAME
+computer_name_prefix=$(
+  python3 "$SCRIPT_DIR/config.py" get --config "$config_file" --key COMPUTER_NAME_PREFIX
 )
 admin_username=$(
   python3 "$SCRIPT_DIR/config.py" get --config "$config_file" --key ADMIN_USERNAME
@@ -81,16 +104,36 @@ destination.write_bytes(data.replace(b"\n", b"\r\n"))
 PY
 }
 
-for required in wifi-ssid wifi-password ssh-public-key; do
-  [[ -s "$private_dir/$required" ]] || {
-    echo "missing private input: $private_dir/$required" >&2
+[[ -s "$private_dir/ssh-public-key" ]] || {
+  echo "missing private input: $private_dir/ssh-public-key" >&2
+  exit 1
+}
+[[ -s "$private_dir/tailscale-auth-key" ]] || {
+  echo "missing private input: $private_dir/tailscale-auth-key" >&2
+  exit 1
+}
+wifi_enabled=false
+if [[ -e "$private_dir/wifi-ssid" || -e "$private_dir/wifi-password" ]]; then
+  [[ -s "$private_dir/wifi-ssid" && -s "$private_dir/wifi-password" ]] || {
+    echo "wifi-ssid and wifi-password must either both be present or both be absent" >&2
     exit 1
   }
-done
+  wifi_enabled=true
+fi
 ssh-keygen -lf "$private_dir/ssh-public-key" >/dev/null
 ssh_fingerprint=$(ssh-keygen -lf "$private_dir/ssh-public-key" | awk '{print $2}')
+python3 - "$private_dir/tailscale-auth-key" <<'PY'
+from pathlib import Path
+import re
+import sys
 
-python3 - "$private_dir/wifi-ssid" "$private_dir/wifi-password" <<'PY'
+value = Path(sys.argv[1]).read_text(encoding="utf-8").strip()
+if not re.fullmatch(r"tskey-[A-Za-z0-9_-]+", value):
+    raise SystemExit("Tailscale auth key file must contain exactly one tskey-* value")
+PY
+
+if [[ "$wifi_enabled" == "true" ]]; then
+  python3 - "$private_dir/wifi-ssid" "$private_dir/wifi-password" <<'PY'
 from pathlib import Path
 import sys
 
@@ -103,14 +146,35 @@ if not 8 <= len(password) <= 63:
 if "\n" in ssid or "\r" in ssid or "\n" in password or "\r" in password:
     raise SystemExit("Wi-Fi inputs must contain exactly one value")
 PY
+fi
 
-actual_base_sha256=$(shasum -a 256 "$base_iso" | awk '{print $1}')
-normalized_actual_sha256=$(printf '%s' "$actual_base_sha256" | tr '[:upper:]' '[:lower:]')
-normalized_expected_sha256=$(printf '%s' "$base_sha256" | tr '[:upper:]' '[:lower:]')
-if [[ "$normalized_actual_sha256" != "$normalized_expected_sha256" ]]; then
-  echo "Windows ISO checksum mismatch." >&2
-  echo "expected: $normalized_expected_sha256" >&2
-  echo "actual:   $normalized_actual_sha256" >&2
+base_media_description="trusted mounted Windows installer"
+if [[ -z "$base_dir" ]]; then
+  actual_base_sha256=$(shasum -a 256 "$base_iso" | awk '{print $1}')
+  normalized_actual_sha256=$(printf '%s' "$actual_base_sha256" | tr '[:upper:]' '[:lower:]')
+  normalized_expected_sha256=$(printf '%s' "$base_sha256" | tr '[:upper:]' '[:lower:]')
+  if [[ "$normalized_actual_sha256" != "$normalized_expected_sha256" ]]; then
+    echo "Windows ISO checksum mismatch." >&2
+    echo "expected: $normalized_expected_sha256" >&2
+    echo "actual:   $normalized_actual_sha256" >&2
+    exit 1
+  fi
+  base_media_description="ISO SHA-256 $normalized_actual_sha256"
+fi
+actual_openssh_sha256=$(shasum -a 256 "$openssh_msi" | awk '{print $1}')
+normalized_openssh_sha256=$(printf '%s' "$openssh_sha256" | tr '[:upper:]' '[:lower:]')
+if [[ "$actual_openssh_sha256" != "$normalized_openssh_sha256" ]]; then
+  echo "OpenSSH MSI checksum mismatch." >&2
+  echo "expected: $normalized_openssh_sha256" >&2
+  echo "actual:   $actual_openssh_sha256" >&2
+  exit 1
+fi
+actual_tailscale_sha256=$(shasum -a 256 "$tailscale_msi" | awk '{print $1}')
+normalized_tailscale_sha256=$(printf '%s' "$tailscale_sha256" | tr '[:upper:]' '[:lower:]')
+if [[ "$actual_tailscale_sha256" != "$normalized_tailscale_sha256" ]]; then
+  echo "Tailscale MSI checksum mismatch." >&2
+  echo "expected: $normalized_tailscale_sha256" >&2
+  echo "actual:   $actual_tailscale_sha256" >&2
   exit 1
 fi
 
@@ -122,10 +186,10 @@ target_mounted=false
 verify_mounted=false
 output_tmp=
 report_tmp=
-source_mount="$work/source"
+source_mount=
 target_mount="$work/target"
 verify_mount="$work/verify"
-mkdir -p "$source_mount" "$target_mount" "$verify_mount"
+mkdir -p "$target_mount" "$verify_mount"
 
 cleanup() {
   if [[ "$verify_mounted" == "true" ]]; then
@@ -156,9 +220,13 @@ config="$host_root/config"
 mkdir -p \
   "$generated/ai-node" \
   "$oem/\$\$/Setup/Scripts" \
-  "$config"
+  "$config" \
+  "$host_root/packages"
 
-admin_password=$(openssl rand -hex 24)
+admin_password=$(
+  python3 "$SCRIPT_DIR/config.py" generate-password \
+    --word-list "$SCRIPT_DIR/assets/eff-large-wordlist.txt"
+)
 media_marker=$(openssl rand -hex 32)
 
 python3 "$SCRIPT_DIR/config.py" render \
@@ -172,10 +240,11 @@ if [[ $(grep -Fo "__TARGET_DISK_ID__" "$generated/ai-node/autounattend.xml.in" |
 fi
 xmllint --noout "$generated/ai-node/autounattend.xml.in"
 
-python3 - \
-  "$private_dir/wifi-ssid" \
-  "$private_dir/wifi-password" \
-  "$config/wifi-profile.xml" <<'PY'
+if [[ "$wifi_enabled" == "true" ]]; then
+  python3 - \
+    "$private_dir/wifi-ssid" \
+    "$private_dir/wifi-password" \
+    "$config/wifi-profile.xml" <<'PY'
 from pathlib import Path
 import sys
 from xml.sax.saxutils import escape
@@ -209,7 +278,8 @@ xml = f"""<?xml version="1.0"?>
 """
 Path(output).write_text(xml)
 PY
-xmllint --noout "$config/wifi-profile.xml"
+  xmllint --noout "$config/wifi-profile.xml"
+fi
 
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 \
   go build -trimpath -ldflags="-s -w" \
@@ -231,20 +301,34 @@ copy_windows_text "$SCRIPT_DIR/assets/winpeshl.ini" "$generated/ai-node/winpeshl
 copy_windows_text "$SCRIPT_DIR/assets/ei.cfg" "$generated/sources/ei.cfg"
 copy_windows_text "$rendered/SetupComplete.cmd" "$oem/\$\$/Setup/Scripts/SetupComplete.cmd"
 copy_windows_text "$rendered/provision.ps1" "$host_root/provision.ps1"
-install -m 0600 "$private_dir/wifi-ssid" "$config/wifi-ssid"
+if [[ "$wifi_enabled" == "true" ]]; then
+  install -m 0600 "$private_dir/wifi-ssid" "$config/wifi-ssid"
+fi
 install -m 0600 "$private_dir/ssh-public-key" "$config/ssh-public-key"
+install -m 0600 "$private_dir/tailscale-auth-key" "$config/tailscale-auth-key"
+install -m 0600 "$openssh_msi" "$host_root/packages/OpenSSH-Win64.msi"
+install -m 0600 "$tailscale_msi" "$host_root/packages/Tailscale-amd64.msi"
 printf '%s\n' "$media_marker" > "$generated/AI_NODE_MEDIA"
 
-hdiutil attach -readonly -nobrowse -mountpoint "$source_mount" "$base_iso" >/dev/null
-source_mounted=true
+if [[ -n "$base_dir" ]]; then
+  source_mount=$(cd "$base_dir" && pwd)
+else
+  source_mount="$work/source"
+  mkdir -p "$source_mount"
+  hdiutil attach -readonly -nobrowse -mountpoint "$source_mount" "$base_iso" >/dev/null
+  source_mounted=true
+fi
 
 install_image=
 if [[ -f "$source_mount/sources/install.wim" ]]; then
   install_image="$source_mount/sources/install.wim"
 elif [[ -f "$source_mount/sources/install.esd" ]]; then
   install_image="$source_mount/sources/install.esd"
+elif [[ -f "$source_mount/sources/install.swm" ]]; then
+  install_image="$source_mount/sources/install.swm"
+  install_ref="$source_mount/sources/install*.swm"
 else
-  echo "official ISO does not contain sources/install.wim or sources/install.esd" >&2
+  echo "official media does not contain install.wim, install.esd, or install.swm" >&2
   exit 1
 fi
 wimlib-imagex info "$install_image" "Windows 11 Pro" >/dev/null
@@ -269,15 +353,21 @@ rsync -rlt \
   --exclude='._*' \
   --exclude='/sources/install.wim' \
   --exclude='/sources/install.esd' \
+  --exclude='/sources/install*.swm' \
   "$source_mount/" "$target_mount/"
 
 pro_image="$work/install.wim"
-wimlib-imagex export \
-  "$install_image" \
-  "Windows 11 Pro" \
-  "$pro_image" \
-  "Windows 11 Pro" \
-  --compress=LZX
+export_arguments=(
+  "$install_image"
+  "Windows 11 Pro"
+  "$pro_image"
+  "Windows 11 Pro"
+  "--compress=LZX"
+)
+if [[ -n "${install_ref:-}" ]]; then
+  export_arguments+=("--ref=$install_ref")
+fi
+wimlib-imagex export "${export_arguments[@]}"
 install_size=$(stat -f %z "$pro_image")
 if (( install_size > 4000000000 )); then
   wimlib-imagex split "$pro_image" "$target_mount/sources/install.swm" 3800
@@ -299,8 +389,10 @@ find "$target_mount" -type f \( -name '._*' -o -name '.DS_Store' \) -delete
 sync
 hdiutil detach "$target_mount" -quiet
 target_mounted=false
-hdiutil detach "$source_mount" -quiet
-source_mounted=false
+if [[ "$source_mounted" == "true" ]]; then
+  hdiutil detach "$source_mount" -quiet
+  source_mounted=false
+fi
 
 mkdir -p "$(dirname "$output")" "$(dirname "$recovery_report")"
 output_tmp="${output}.partial.$$.dmg"
@@ -337,16 +429,23 @@ cmp "$oem/\$\$/Setup/Scripts/SetupComplete.cmd" \
   "$verify_mount/sources/\$OEM\$/\$\$/Setup/Scripts/SetupComplete.cmd"
 cmp "$host_root/provision.ps1" \
   "$verify_mount/sources/\$OEM\$/\$1/ProgramData/$app_prefix/provision.ps1"
-cmp "$config/wifi-ssid" \
-  "$verify_mount/sources/\$OEM\$/\$1/ProgramData/$app_prefix/config/wifi-ssid"
-cmp "$config/wifi-profile.xml" \
-  "$verify_mount/sources/\$OEM\$/\$1/ProgramData/$app_prefix/config/wifi-profile.xml"
+if [[ "$wifi_enabled" == "true" ]]; then
+  cmp "$config/wifi-ssid" \
+    "$verify_mount/sources/\$OEM\$/\$1/ProgramData/$app_prefix/config/wifi-ssid"
+  cmp "$config/wifi-profile.xml" \
+    "$verify_mount/sources/\$OEM\$/\$1/ProgramData/$app_prefix/config/wifi-profile.xml"
+else
+  [[ ! -e "$verify_mount/sources/\$OEM\$/\$1/ProgramData/$app_prefix/config/wifi-ssid" ]]
+  [[ ! -e "$verify_mount/sources/\$OEM\$/\$1/ProgramData/$app_prefix/config/wifi-profile.xml" ]]
+fi
 cmp "$config/ssh-public-key" \
   "$verify_mount/sources/\$OEM\$/\$1/ProgramData/$app_prefix/config/ssh-public-key"
-[[ ! -e "$verify_mount/sources/\$OEM\$/\$1/ProgramData/$app_prefix/packages" ]] || {
-  echo "unexpected application packages are present in the minimal image" >&2
-  exit 1
-}
+cmp "$config/tailscale-auth-key" \
+  "$verify_mount/sources/\$OEM\$/\$1/ProgramData/$app_prefix/config/tailscale-auth-key"
+cmp "$host_root/packages/OpenSSH-Win64.msi" \
+  "$verify_mount/sources/\$OEM\$/\$1/ProgramData/$app_prefix/packages/OpenSSH-Win64.msi"
+cmp "$host_root/packages/Tailscale-amd64.msi" \
+  "$verify_mount/sources/\$OEM\$/\$1/ProgramData/$app_prefix/packages/Tailscale-amd64.msi"
 if find "$verify_mount" -name '._*' -print -quit | grep -q .; then
   echo "unexpected AppleDouble metadata is present in the installer image" >&2
   exit 1
@@ -377,12 +476,15 @@ Windows unattended installer recovery information
 Generated: $(date -u '+%Y-%m-%dT%H:%M:%SZ')
 Target: General x64 compute node; automatic internal-disk selection
 Windows edition: Windows 11 Pro
-Host name: $computer_name
+Host name pattern: $computer_name_prefix-ADJECTIVE-NOUN
 Administrator account: $admin_username
 Administrator password: $admin_password
 SSH authentication: public key only
 SSH public-key fingerprint: $ssh_fingerprint
-Base ISO SHA-256: $normalized_actual_sha256
+Base media: $base_media_description
+OpenSSH MSI SHA-256: $normalized_openssh_sha256
+Tailscale: automatic unattended enrollment enabled
+Tailscale MSI SHA-256: $normalized_tailscale_sha256
 Media SHA-256: $image_sha256
 Media marker: $media_marker
 Activation: no product key is embedded; Windows can use the device's existing firmware or digital license.

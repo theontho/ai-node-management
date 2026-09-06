@@ -1,11 +1,36 @@
 package main
 
 import (
+	"crypto/rand"
 	"fmt"
+	"math/big"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 )
+
+var computerNameAdjectives = []string{
+	"amber", "azure", "black", "blue", "bold", "brave", "brisk", "calm",
+	"coral", "crisp", "dusk", "eager", "fair", "fast", "fleet", "fresh",
+	"gold", "grand", "green", "happy", "hazy", "ivory", "jolly", "keen",
+	"light", "lucky", "lunar", "merry", "misty", "noble", "north", "prime",
+	"proud", "quick", "quiet", "rapid", "ready", "red", "royal", "sage",
+	"sharp", "shy", "smart", "solar", "solid", "stark", "still", "swift",
+	"vivid", "warm", "wild", "young", "zesty", "aqua", "clear", "cool",
+	"deep", "early", "level", "lucid", "neat", "pale", "true", "white",
+}
+
+var computerNameNouns = []string{
+	"ant", "bear", "bison", "boar", "crane", "crow", "deer", "dingo",
+	"dove", "eagle", "finch", "fox", "gecko", "goose", "hawk", "heron",
+	"horse", "koala", "lemur", "lion", "lynx", "moose", "mouse", "otter",
+	"owl", "panda", "puma", "quail", "raven", "robin", "seal", "shark",
+	"sheep", "sloth", "snake", "stork", "swan", "tiger", "toad", "trout",
+	"whale", "wolf", "yak", "zebra", "cedar", "cloud", "comet", "delta",
+	"ember", "field", "flame", "frost", "grove", "maple", "ocean", "orbit",
+	"pine", "river", "stone", "storm", "vault", "wave", "wind", "star",
+}
 
 const (
 	busTypeUnknown           = 0
@@ -148,12 +173,44 @@ func chooseTarget(candidates []disk, preferredMinBytes uint64) (disk, bool) {
 	return ranked[0], ranked[0].sizeBytes >= preferredMinBytes
 }
 
-func renderAnswer(template string, targetIndex int) (string, error) {
-	const placeholder = "__TARGET_DISK_ID__"
-	if strings.Count(template, placeholder) != 2 {
-		return "", fmt.Errorf("answer template must contain exactly two %s placeholders", placeholder)
+func generateComputerName(prefix string) (string, error) {
+	if matched, err := regexp.MatchString(`^[A-Za-z][A-Za-z0-9]{0,2}$`, prefix); err != nil || !matched {
+		return "", fmt.Errorf("invalid computer-name prefix %q", prefix)
 	}
-	return strings.ReplaceAll(template, placeholder, strconv.Itoa(targetIndex)), nil
+
+	adjectiveIndex, err := rand.Int(rand.Reader, big.NewInt(int64(len(computerNameAdjectives))))
+	if err != nil {
+		return "", fmt.Errorf("choose computer-name adjective: %w", err)
+	}
+	nounIndex, err := rand.Int(rand.Reader, big.NewInt(int64(len(computerNameNouns))))
+	if err != nil {
+		return "", fmt.Errorf("choose computer-name noun: %w", err)
+	}
+	return fmt.Sprintf(
+		"%s-%s-%s",
+		prefix,
+		computerNameAdjectives[adjectiveIndex.Int64()],
+		computerNameNouns[nounIndex.Int64()],
+	), nil
+}
+
+func renderAnswer(template string, targetIndex int, computerName string) (string, error) {
+	const diskPlaceholder = "__TARGET_DISK_ID__"
+	const computerNamePlaceholder = "__RUNTIME_COMPUTER_NAME__"
+	if strings.Count(template, diskPlaceholder) != 2 {
+		return "", fmt.Errorf(
+			"answer template must contain exactly two %s placeholders",
+			diskPlaceholder,
+		)
+	}
+	if strings.Count(template, computerNamePlaceholder) != 1 {
+		return "", fmt.Errorf(
+			"answer template must contain exactly one %s placeholder",
+			computerNamePlaceholder,
+		)
+	}
+	rendered := strings.ReplaceAll(template, diskPlaceholder, strconv.Itoa(targetIndex))
+	return strings.ReplaceAll(rendered, computerNamePlaceholder, computerName), nil
 }
 
 func renderSecondaryWipePlan(candidates []disk, targetIndex int) string {

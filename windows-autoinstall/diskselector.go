@@ -155,11 +155,19 @@ func main() {
 	answerTemplate := flag.String("answer-template", "", "unattended answer template")
 	answerOutput := flag.String("answer-output", "", "rendered unattended answer path")
 	wipePlanOutput := flag.String("wipe-plan-output", "", "DiskPart plan for secondary internal disks")
+	computerNamePrefix := flag.String("computer-name-prefix", "", "prefix for the generated computer name")
 	preferredMinBytes := flag.Uint64("preferred-min-bytes", 60_000_000_000, "preferred minimum target size")
 	flag.Parse()
 
-	if *excludeVolume == "" || *answerTemplate == "" || *answerOutput == "" || *wipePlanOutput == "" {
-		fmt.Fprintln(os.Stderr, "disk selector requires the installer volume, answer paths, and wipe-plan path")
+	if *excludeVolume == "" ||
+		*answerTemplate == "" ||
+		*answerOutput == "" ||
+		*wipePlanOutput == "" ||
+		*computerNamePrefix == "" {
+		fmt.Fprintln(
+			os.Stderr,
+			"disk selector requires the installer volume, computer-name prefix, answer paths, and wipe-plan path",
+		)
 		os.Exit(1)
 	}
 
@@ -225,7 +233,12 @@ func main() {
 	if err != nil {
 		fallback("read answer template: %v", err)
 	}
-	answer, err := renderAnswer(string(template), target.index)
+	computerName, err := generateComputerName(*computerNamePrefix)
+	if err != nil {
+		fallback("%v", err)
+	}
+	fmt.Printf("Generated computer name: %s\n", computerName)
+	answer, err := renderAnswer(string(template), target.index, computerName)
 	if err != nil {
 		fallback("%v", err)
 	}

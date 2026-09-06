@@ -2,7 +2,7 @@ $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
 $appPrefix = "__APP_PREFIX_PS__"
-$computerName = "__COMPUTER_NAME_PS__"
+$computerNamePrefix = "__COMPUTER_NAME_PREFIX_PS__"
 $administratorUsername = "__ADMIN_USERNAME_PS__"
 
 function Test-IsAdministrator {
@@ -40,8 +40,8 @@ foreach ($line in Get-Content -LiteralPath $manifest) {
     }
 }
 
-if ($env:COMPUTERNAME -ne $computerName) {
-    throw "This payload targets $computerName, not $env:COMPUTERNAME"
+if (-not $env:COMPUTERNAME.StartsWith($computerNamePrefix, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "This payload targets names beginning with $computerNamePrefix, not $env:COMPUTERNAME"
 }
 
 $administrator = Get-LocalUser -Name $administratorUsername -ErrorAction Stop
@@ -64,30 +64,9 @@ if ($existingTask) {
     Unregister-ScheduledTask -TaskName "$appPrefix-Provision" -Confirm:$false
 }
 
-if (-not (Get-Service -Name sshd -ErrorAction SilentlyContinue)) {
-    $winget = Get-Command winget.exe -ErrorAction Stop
-    $wingetArguments = @(
-        "install",
-        "--id", "Microsoft.OpenSSH.Preview",
-        "--exact",
-        "--source", "winget",
-        "--silent",
-        "--accept-package-agreements",
-        "--accept-source-agreements",
-        "--disable-interactivity"
-    )
-    $wingetProcess = Start-Process `
-        -FilePath $winget.Source `
-        -ArgumentList $wingetArguments `
-        -Wait `
-        -PassThru
-    if ($wingetProcess.ExitCode -ne 0) {
-        throw "WinGet could not install OpenSSH (exit code $($wingetProcess.ExitCode))"
-    }
-}
-
 $destinationConfig = Join-Path $destinationRoot "config"
 New-Item -ItemType Directory -Force -Path $destinationConfig | Out-Null
+New-Item -ItemType Directory -Force -Path (Join-Path $destinationRoot "packages") | Out-Null
 Copy-Item `
     -LiteralPath (Join-Path $sourceRoot "provision.ps1") `
     -Destination (Join-Path $destinationRoot "provision.ps1") `
@@ -95,6 +74,18 @@ Copy-Item `
 Copy-Item `
     -LiteralPath (Join-Path $sourceRoot "config\ssh-public-key") `
     -Destination (Join-Path $destinationConfig "ssh-public-key") `
+    -Force
+Copy-Item `
+    -LiteralPath (Join-Path $sourceRoot "packages\OpenSSH-Win64.msi") `
+    -Destination (Join-Path $destinationRoot "packages\OpenSSH-Win64.msi") `
+    -Force
+Copy-Item `
+    -LiteralPath (Join-Path $sourceRoot "packages\Tailscale-amd64.msi") `
+    -Destination (Join-Path $destinationRoot "packages\Tailscale-amd64.msi") `
+    -Force
+Copy-Item `
+    -LiteralPath (Join-Path $sourceRoot "config\tailscale-auth-key") `
+    -Destination (Join-Path $destinationConfig "tailscale-auth-key") `
     -Force
 
 & icacls.exe `

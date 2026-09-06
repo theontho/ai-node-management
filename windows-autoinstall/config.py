@@ -5,13 +5,14 @@ from __future__ import annotations
 
 import argparse
 import re
+import secrets
 from pathlib import Path
 from typing import Dict, Optional
 from xml.sax.saxutils import escape
 
 
 REQUIRED_KEYS = {
-    "COMPUTER_NAME",
+    "COMPUTER_NAME_PREFIX",
     "ADMIN_USERNAME",
     "TIME_ZONE",
     "PREFERRED_MIN_TARGET_DISK_BYTES",
@@ -42,7 +43,11 @@ WINDOWS_RESERVED_NAMES = {
     "NUL",
     "PRN",
 }
-ALLOWED_UNRESOLVED = {"__PROGRAMDATA__", "__TARGET_DISK_ID__"}
+ALLOWED_UNRESOLVED = {
+    "__PROGRAMDATA__",
+    "__RUNTIME_COMPUTER_NAME__",
+    "__TARGET_DISK_ID__",
+}
 PLACEHOLDER_RE = re.compile(r"__[A-Z][A-Z0-9_]*__")
 
 
@@ -50,16 +55,41 @@ class ConfigError(ValueError):
     """Raised when local configuration is unsafe or incomplete."""
 
 
+def generate_password(word_list_path: Path) -> str:
+    try:
+        lines = word_list_path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeError) as error:
+        raise ConfigError(f"cannot read password word list {word_list_path}: {error}") from error
+
+    words = []
+    for line_number, line in enumerate(lines, 1):
+        match = re.fullmatch(r"[1-6]{5}\t([a-z]+)", line)
+        if match:
+            words.append(match.group(1))
+        elif not re.fullmatch(r"[1-6]{5}\t[a-z]+-[a-z]+", line):
+            raise ConfigError(
+                f"{word_list_path}:{line_number}: invalid EFF word-list entry"
+            )
+
+    if len(words) < 7_700 or len(words) != len(set(words)):
+        raise ConfigError(
+            f"{word_list_path}: password word list must contain at least "
+            "7700 unique alphabetic words"
+        )
+
+    selected = [secrets.choice(words).capitalize() for _ in range(3)]
+    return "-".join((*selected, f"{secrets.randbelow(10_000):04d}"))
+
+
 def _validate(config: Dict[str, str]) -> None:
-    computer_name = config["COMPUTER_NAME"]
+    computer_name_prefix = config["COMPUTER_NAME_PREFIX"]
     if (
-        not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,13}[A-Za-z0-9])?", computer_name)
-        or computer_name.isdigit()
-        or computer_name.upper() in WINDOWS_RESERVED_NAMES
+        not re.fullmatch(r"[A-Za-z][A-Za-z0-9]{0,2}", computer_name_prefix)
+        or computer_name_prefix.upper() in WINDOWS_RESERVED_NAMES
     ):
         raise ConfigError(
-            "COMPUTER_NAME must be a non-numeric Windows name of 1..15 "
-            "letters, digits, or interior hyphens"
+            "COMPUTER_NAME_PREFIX must contain 1..3 letters or digits and "
+            "start with a letter"
         )
 
     admin_username = config["ADMIN_USERNAME"]
@@ -137,7 +167,10 @@ def render_template(
         raise ConfigError(f"cannot read template {template_path}: {error}") from error
 
     replacements = {
-        "__COMPUTER_NAME_XML__": escape(config["COMPUTER_NAME"]),
+        "__COMPUTER_NAME_PREFIX_CMD__": config["COMPUTER_NAME_PREFIX"],
+        "__COMPUTER_NAME_PREFIX_PS__": config["COMPUTER_NAME_PREFIX"].replace(
+            "'", "''"
+        ),
         "__ADMIN_USERNAME_XML__": escape(config["ADMIN_USERNAME"]),
         "__TIME_ZONE_XML__": escape(config["TIME_ZONE"]),
         "__PREFERRED_MIN_TARGET_DISK_BYTES_CMD__": config[
@@ -145,12 +178,22 @@ def render_template(
         ],
         "__APP_PREFIX_CMD__": config["APP_PREFIX"],
         "__APP_PREFIX_PS__": config["APP_PREFIX"].replace("'", "''"),
-        "__COMPUTER_NAME_PS__": config["COMPUTER_NAME"].replace("'", "''"),
         "__ADMIN_USERNAME_PS__": config["ADMIN_USERNAME"].replace("'", "''"),
     }
     if "__ADMIN_PASSWORD_XML__" in text:
-        if admin_password is None or not re.fullmatch(r"[0-9a-f]{48}", admin_password):
-            raise ConfigError("administrator password must be 48 lowercase hex characters")
+        if (
+            admin_password is None
+            or not 16 <= len(admin_password) <= 64
+            or not re.fullmatch(r"[A-Za-z0-9-]+", admin_password)
+            or not re.search(r"[A-Z]", admin_password)
+            or not re.search(r"[a-z]", admin_password)
+            or not re.search(r"[0-9]", admin_password)
+            or "-" not in admin_password
+        ):
+            raise ConfigError(
+                "administrator password must be 16..64 characters and include "
+                "uppercase, lowercase, numeric, and hyphen characters"
+            )
         replacements["__ADMIN_PASSWORD_XML__"] = escape(admin_password)
 
     for placeholder, value in replacements.items():
@@ -182,8 +225,15 @@ def main() -> int:
     render_parser.add_argument("--output", required=True, type=Path)
     render_parser.add_argument("--admin-password")
 
+    password_parser = subparsers.add_parser("generate-password")
+    password_parser.add_argument("--word-list", required=True, type=Path)
+
     arguments = parser.parse_args()
     try:
+        if arguments.command == "generate-password":
+            print(generate_password(arguments.word_list))
+            return 0
+
         config = load_config(arguments.config)
         if arguments.command == "get":
             print(config[arguments.key])

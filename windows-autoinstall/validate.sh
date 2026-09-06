@@ -28,8 +28,13 @@ python3 "$SCRIPT_DIR/config.py" render \
   --config "$SCRIPT_DIR/config.example.env" \
   --template "$SCRIPT_DIR/autounattend.xml.in" \
   --output "$work/autounattend.xml.in" \
-  --admin-password aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  --admin-password Velvet-River-Compass-4821
 xmllint --noout "$work/autounattend.xml.in"
+generated_password=$(
+  python3 "$SCRIPT_DIR/config.py" generate-password \
+    --word-list "$SCRIPT_DIR/assets/eff-large-wordlist.txt"
+)
+[[ "$generated_password" =~ ^[A-Z][a-z]+-[A-Z][a-z]+-[A-Z][a-z]+-[0-9]{4}$ ]]
 for asset in prepare.cmd winpe-start.cmd SetupComplete.cmd provision.ps1 install-existing.ps1; do
   python3 "$SCRIPT_DIR/config.py" render \
     --config "$SCRIPT_DIR/config.example.env" \
@@ -41,14 +46,27 @@ python3 "$SCRIPT_DIR/config.py" render \
   --template "$SCRIPT_DIR/assets/existing-setup-README.txt" \
   --output "$work/existing-setup-README.txt"
 ssh-keygen -q -t ed25519 -N "" -f "$work/validation-key"
+printf 'offline OpenSSH validation package\n' > "$work/OpenSSH-Win64.msi"
+openssh_sha256=$(shasum -a 256 "$work/OpenSSH-Win64.msi" | awk '{print $1}')
+printf 'offline Tailscale validation package\n' > "$work/Tailscale-amd64.msi"
+tailscale_sha256=$(shasum -a 256 "$work/Tailscale-amd64.msi" | awk '{print $1}')
+printf 'tskey-auth-validation\n' > "$work/tailscale-auth-key"
 "$SCRIPT_DIR/build-existing-setup.sh" \
   --config "$SCRIPT_DIR/config.example.env" \
   --ssh-public-key-file "$work/validation-key.pub" \
+  --openssh-msi "$work/OpenSSH-Win64.msi" \
+  --openssh-sha256 "$openssh_sha256" \
+  --tailscale-msi "$work/Tailscale-amd64.msi" \
+  --tailscale-sha256 "$tailscale_sha256" \
+  --tailscale-auth-key-file "$work/tailscale-auth-key" \
   --output-dir "$work/existing-setup"
 [[ -f "$work/existing-setup/install-existing.ps1" ]]
 [[ -f "$work/existing-setup/provision.ps1" ]]
 [[ -f "$work/existing-setup/SetupComplete.cmd" ]]
 [[ -f "$work/existing-setup/config/ssh-public-key" ]]
+[[ -f "$work/existing-setup/config/tailscale-auth-key" ]]
+[[ -f "$work/existing-setup/packages/OpenSSH-Win64.msi" ]]
+[[ -f "$work/existing-setup/packages/Tailscale-amd64.msi" ]]
 [[ -f "$work/existing-setup/manifest.sha256" ]]
 (
   cd "$work/existing-setup"
@@ -61,6 +79,11 @@ fi
 if "$SCRIPT_DIR/build-existing-setup.sh" \
   --config "$SCRIPT_DIR/config.example.env" \
   --ssh-public-key-file "$work/validation-key.pub" \
+  --openssh-msi "$work/OpenSSH-Win64.msi" \
+  --openssh-sha256 "$openssh_sha256" \
+  --tailscale-msi "$work/Tailscale-amd64.msi" \
+  --tailscale-sha256 "$tailscale_sha256" \
+  --tailscale-auth-key-file "$work/tailscale-auth-key" \
   --output-dir "$work/existing-setup" 2>/dev/null; then
   echo "existing-Windows builder overwrote an existing output directory" >&2
   exit 1
@@ -141,14 +164,14 @@ for name, script in (("prepare.cmd", prepare), ("winpe-start.cmd", winpe_start))
     assert targets <= labels, f"{name} has missing labels: {targets - labels}"
 
 expected_config = {
-    "COMPUTER_NAME": "AI-NODE",
+    "COMPUTER_NAME_PREFIX": "win",
     "ADMIN_USERNAME": "ai-admin",
     "TIME_ZONE": "UTC",
     "PREFERRED_MIN_TARGET_DISK_BYTES": "60000000000",
     "APP_PREFIX": "AiNode",
 }
 assert config_module.load_config(root / "config.example.env") == expected_config
-assert "__COMPUTER_NAME_XML__" in answer_source
+assert "__RUNTIME_COMPUTER_NAME__" in answer_source
 assert "__ADMIN_USERNAME_XML__" in answer_source
 assert "__TIME_ZONE_XML__" in answer_source
 assert "__ADMIN_PASSWORD_XML__" in answer_source
@@ -156,12 +179,12 @@ assert "__PREFERRED_MIN_TARGET_DISK_BYTES_CMD__" in prepare_source
 assert "__APP_PREFIX_CMD__" in setup_source
 for placeholder in (
     "__APP_PREFIX_PS__",
-    "__COMPUTER_NAME_PS__",
     "__ADMIN_USERNAME_PS__",
 ):
     assert placeholder in provision_source
+assert "__COMPUTER_NAME_PREFIX_CMD__" in prepare_source
 
-assert "<ComputerName>AI-NODE</ComputerName>" in answer
+assert "<ComputerName>__RUNTIME_COMPUTER_NAME__</ComputerName>" in answer
 assert "<Name>ai-admin</Name>" in answer
 assert "<TimeZone>UTC</TimeZone>" in answer
 assert "<Group>Administrators</Group>" in answer
@@ -171,7 +194,10 @@ assert answer.count("__TARGET_DISK_ID__") == 2
 assert "<DiskID>0</DiskID>" not in answer
 assert "<Size>512</Size>" in answer
 assert "<PartitionID>3</PartitionID>" in answer
-assert set(config_module.PLACEHOLDER_RE.findall(answer)) == {"__TARGET_DISK_ID__"}
+assert set(config_module.PLACEHOLDER_RE.findall(answer)) == {
+    "__RUNTIME_COMPUTER_NAME__",
+    "__TARGET_DISK_ID__",
+}
 
 assert "diskpart.exe" in prepare
 assert "diskselector.exe" in prepare
@@ -181,6 +207,7 @@ assert "ai-node-winpe-start.cmd" in winpeshl
 assert '/unattend:"X:\\ai-node-autounattend.xml"' in winpe_start
 assert '"%SYSTEMDRIVE%\\setup.exe"' in winpe_start
 assert "--preferred-min-bytes 60000000000" in prepare
+assert '--computer-name-prefix "win"' in prepare
 assert '--exclude-volume "%MEDIA%"' in prepare
 assert '--answer-template "%MEDIA%\\ai-node\\autounattend.xml.in"' in prepare
 assert "ai-node-wipe-secondary.txt" in prepare
@@ -198,10 +225,29 @@ assert '/RU SYSTEM /RL HIGHEST' in setup_complete
 assert 'schtasks.exe /Run /TN "AiNode-Provision"' in setup_complete
 
 assert '$appPrefix = "AiNode"' in provision
-assert '$computerName = "AI-NODE"' in provision
+assert "$computerName = $env:COMPUTERNAME" in provision
 assert '$administratorUsername = "ai-admin"' in provision
-assert 'OpenSSH.Server~~~~0.0.1.0' in provision
 assert "Get-Service -Name sshd" in provision
+assert r'packages\OpenSSH-Win64.msi' in provision
+assert "msiexec.exe" in provision
+assert "Add-WindowsCapability" not in provision
+assert "Install-Tailscale" in provision
+assert "Connect-Tailscale" in provision
+assert '"--auth-key=file:@@AUTH_KEY@@"' in provision
+assert '"--hostname=@@HOSTNAME@@"' in provision
+assert "--unattended" in provision
+assert "-LogonType S4U" in provision
+assert 'BackendState -ne "Running"' in provision
+assert "LetAppsAccessLocation" in provision
+assert 'return $false' in provision
+assert '"100.64.0.0/10"' in provision
+assert '"fd7a:115c:a1e0::/48"' in provision
+assert '"fDenyTSConnections"' in provision
+assert '"UserAuthentication"' in provision
+assert "Set-Service -Name TermService -StartupType Automatic" in provision
+assert '"RemoteDesktop-UserMode-In-*"' in provision
+assert '-LocalPort 3389' in provision
+assert '(Join-Path $config "tailscale-auth-key")' in provision
 assert 'netsh.exe wlan add profile' in provision
 assert '"PasswordAuthentication no"' in provision
 assert '"AllowUsers $administratorUsername"' in provision
@@ -216,34 +262,50 @@ assert 'LocalSubnet' in provision
 assert 'Unregister-ScheduledTask -TaskName "$appPrefix-Provision"' in provision
 
 assert '$appPrefix = "AiNode"' in install_existing
-assert '$computerName = "AI-NODE"' in install_existing
+assert '$computerNamePrefix = "win"' in install_existing
 assert '$administratorUsername = "ai-admin"' in install_existing
 assert "Test-IsAdministrator" in install_existing
 assert 'Get-LocalGroup -SID "S-1-5-32-544"' in install_existing
 assert "manifest.sha256" in install_existing
 assert "Get-FileHash" in install_existing
-assert "This payload targets" in install_existing
+assert "targets names beginning with" in install_existing
 assert "is already provisioned" in install_existing
 assert 'Unregister-ScheduledTask -TaskName "$appPrefix-Provision"' in install_existing
-assert '"Microsoft.OpenSSH.Preview"' in install_existing
-assert '"--source", "winget"' in install_existing
-assert "WinGet could not install OpenSSH" in install_existing
+assert r'packages\OpenSSH-Win64.msi' in install_existing
+assert r'packages\Tailscale-amd64.msi' in install_existing
+assert r'config\tailscale-auth-key' in install_existing
+assert "winget" not in install_existing.lower()
 assert "SetupComplete.cmd" in install_existing
 assert r"C:\ProgramData\AiNode\state\remote-ready.txt" in existing_setup_readme
-assert "installs Microsoft OpenSSH with WinGet" in existing_setup_readme
+assert "bundled, checksum-verified" in existing_setup_readme
 
 assert "--config FILE" in build
+assert "--base-dir DIR" in build
+assert 'if [[ "$source_mounted" == "true" ]]' in build
+assert "--openssh-msi FILE" in build
+assert "--openssh-sha256 HEX" in build
+assert "--tailscale-msi FILE" in build
+assert "--tailscale-sha256 HEX" in build
 assert 'config.py" validate --config "$config_file"' in build
 assert 'config.py" render' in build
 assert "-layout MBRSPUD" in build
 assert "-layout GPTSPUD" not in build
 assert "COPYFILE_DISABLE=1" in build
+assert 'config.py" generate-password' in build
+assert "eff-large-wordlist.txt" in build
 assert "copy_windows_text" in build
 assert "unexpected AppleDouble metadata" in build
 assert "auto-discovered root answer template" in build
 assert '$generated/ai-node/autounattend.xml.in' in build
 assert 'install -m 0600 "$private_dir/ssh-public-key"' in build
+assert 'wifi_enabled=false' in build
+assert "must either both be present or both be absent" in build
+assert 'install -m 0600 "$openssh_msi"' in build
+assert 'install -m 0600 "$tailscale_msi"' in build
+assert 'install -m 0600 "$private_dir/tailscale-auth-key"' in build
 assert "wimlib-imagex split" in build
+assert "install*.swm" in build
+assert "--ref=$install_ref" in build
 assert "wimlib-imagex update" in build
 assert "winpeshl.ini" in build
 assert "diskselector.go" in build
@@ -255,6 +317,11 @@ assert "recipient" not in build
 assert "wipe-media" not in build
 
 assert "--ssh-public-key-file FILE" in build_existing
+assert "--openssh-msi FILE" in build_existing
+assert "--openssh-sha256 HEX" in build_existing
+assert "--tailscale-msi FILE" in build_existing
+assert "--tailscale-sha256 HEX" in build_existing
+assert "--tailscale-auth-key-file FILE" in build_existing
 assert "--output-dir DIR" in build_existing
 assert "refusing to overwrite existing output directory" in build_existing
 assert "manifest.sha256" in build_existing
@@ -276,7 +343,9 @@ assert "/output/" in gitignore
 assert "--config local/config.env" in readme
 assert "build-existing-setup.sh" in readme
 assert "does not format" in readme
-assert "Microsoft OpenSSH through the built-in WinGet client" in readme
+assert "never waits for WinGet" in readme
+assert "enrolls in unattended" in readme
+assert "three independently selected words" in readme
 assert "ordinary interactive Windows Setup" in readme
 assert "refuses non-removable or internal devices" in readme
 for private_name in ("wifi-ssid", "wifi-password", "ssh-public-key"):
@@ -293,7 +362,8 @@ def expect_invalid(name, transform):
 
 expect_invalid("unknown", lambda text: text + "EXTRA=value\n")
 expect_invalid("duplicate", lambda text: text + "APP_PREFIX=Other\n")
-expect_invalid("computer", lambda text: text.replace("AI-NODE", "node&erase"))
+expect_invalid("computer", lambda text: text.replace("win", "w&n", 1))
+expect_invalid("computer-long", lambda text: text.replace("win", "node", 1))
 expect_invalid("username", lambda text: text.replace("ai-admin", "admin user"))
 expect_invalid("timezone", lambda text: text.replace("TIME_ZONE=UTC", "TIME_ZONE=UTC&whoami"))
 expect_invalid("bytes", lambda text: text.replace("60000000000", "sixty-billion"))

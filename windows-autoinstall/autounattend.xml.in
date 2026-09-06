@@ -74,7 +74,7 @@
   </settings>
   <settings pass="specialize">
     <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
-      <ComputerName>__COMPUTER_NAME_XML__</ComputerName>
+      <ComputerName>__RUNTIME_COMPUTER_NAME__</ComputerName>
       <RegisteredOwner>__ADMIN_USERNAME_XML__</RegisteredOwner>
       <RegisteredOrganization>Managed Node</RegisteredOrganization>
       <TimeZone>__TIME_ZONE_XML__</TimeZone>

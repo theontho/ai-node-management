@@ -26,6 +26,7 @@ if errorlevel 1 goto :normal
 
 "%MEDIA%\ai-node\diskselector.exe" ^
   --exclude-volume "%MEDIA%" ^
+  --computer-name-prefix "__COMPUTER_NAME_PREFIX_CMD__" ^
   --preferred-min-bytes __PREFERRED_MIN_TARGET_DISK_BYTES_CMD__ ^
   --answer-template "%MEDIA%\ai-node\autounattend.xml.in" ^
   --answer-output "X:\ai-node-autounattend.xml" ^

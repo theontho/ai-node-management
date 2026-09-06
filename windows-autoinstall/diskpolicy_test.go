@@ -63,13 +63,61 @@ func TestInternalDiskFiltering(t *testing.T) {
 }
 
 func TestRenderAnswer(t *testing.T) {
-	rendered, err := renderAnswer("<DiskID>__TARGET_DISK_ID__</DiskID><DiskID>__TARGET_DISK_ID__</DiskID>", 7)
+	template := "<ComputerName>__RUNTIME_COMPUTER_NAME__</ComputerName>" +
+		"<DiskID>__TARGET_DISK_ID__</DiskID><DiskID>__TARGET_DISK_ID__</DiskID>"
+	rendered, err := renderAnswer(template, 7, "win-brisk-otter")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rendered != "<DiskID>7</DiskID><DiskID>7</DiskID>" {
+	expected := "<ComputerName>win-brisk-otter</ComputerName>" +
+		"<DiskID>7</DiskID><DiskID>7</DiskID>"
+	if rendered != expected {
 		t.Fatalf("unexpected answer: %s", rendered)
 	}
+}
+
+func TestGenerateComputerName(t *testing.T) {
+	name, err := generateComputerName("win")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(name) > 15 || !strings.HasPrefix(name, "win-") {
+		t.Fatalf("unexpected generated computer name: %q", name)
+	}
+	parts := strings.Split(name, "-")
+	if len(parts) != 3 ||
+		!containsWord(computerNameAdjectives, parts[1]) ||
+		!containsWord(computerNameNouns, parts[2]) {
+		t.Fatalf("computer name does not use the configured dictionaries: %q", name)
+	}
+}
+
+func TestGenerateComputerNameRejectsUnsafePrefix(t *testing.T) {
+	for _, prefix := range []string{"", "9node", "node", "w-n", "win&run"} {
+		if _, err := generateComputerName(prefix); err == nil {
+			t.Errorf("generateComputerName(%q) unexpectedly succeeded", prefix)
+		}
+	}
+}
+
+func TestComputerNameDictionaryFitsWindowsLimit(t *testing.T) {
+	for _, adjective := range computerNameAdjectives {
+		for _, noun := range computerNameNouns {
+			name := "win-" + adjective + "-" + noun
+			if len(name) > 15 {
+				t.Errorf("dictionary-generated name exceeds 15 characters: %q", name)
+			}
+		}
+	}
+}
+
+func containsWord(words []string, candidate string) bool {
+	for _, word := range words {
+		if word == candidate {
+			return true
+		}
+	}
+	return false
 }
 
 func TestWipePlanExcludesTarget(t *testing.T) {

@@ -14,6 +14,16 @@ $nodeVersion = "24.19.0"
 $pythonVersion = "3.13.15"
 $githubCliVersion = "2.100.0"
 $copilotCliVersion = "1.0.82"
+$orcaInstallerUrl = "https://github.com/stablyai/orca/releases/download/v$orcaVersion/orca-windows-setup.exe"
+$orcaInstallerSha256 = "07D66D4177116F80F4AA1AF89C0BDADCC467DF2310DFF962C5F85298F8B8CF91"
+$gitInstallerUrl = "https://github.com/git-for-windows/git/releases/download/v2.55.0.windows.3/Git-2.55.0.3-64-bit.exe"
+$gitInstallerSha256 = "AF12577D0FDFF74243A5988197AA49B957D5044EDC17004F6DDF0768996F1DCA"
+$nodeInstallerUrl = "https://nodejs.org/dist/v$nodeVersion/node-v$nodeVersion-x64.msi"
+$nodeInstallerSha256 = "F0F66C2A80C08A30A5AB5179EE9EA9E45F9B46289436A8CC87FF833B852DB351"
+$pythonInstallerUrl = "https://www.python.org/ftp/python/$pythonVersion/python-$pythonVersion-amd64.exe"
+$pythonInstallerSha256 = "EDEC09C4853AEAE9AC36EFB8C9F95B6B8E2FEE65EEE56D9767A8B7C69C574403"
+$githubCliInstallerUrl = "https://github.com/cli/cli/releases/download/v$githubCliVersion/gh_$($githubCliVersion)_windows_amd64.msi"
+$githubCliInstallerSha256 = "989CDDA347F142CFA33C4457BE5FEC6C2E283A9A65525ADE49A36D2A6CDDB276"
 $workerName = "orca-worker"
 $taskName = "OrcaDevbox-Serve"
 $firewallRuleName = "Orca Devbox Runtime"
@@ -35,48 +45,47 @@ function Invoke-External {
     )
 
     Write-Host "Running: $FilePath $($ArgumentList -join ' ')"
-    & $FilePath @ArgumentList
-    if ($LASTEXITCODE -notin @(0, 1641, 3010)) {
-        throw "$FilePath exited with code $LASTEXITCODE"
+    $process = Start-Process `
+        -FilePath $FilePath `
+        -ArgumentList $ArgumentList `
+        -Wait `
+        -PassThru
+    if ($process.ExitCode -notin @(0, 1641, 3010)) {
+        throw "$FilePath exited with code $($process.ExitCode)"
     }
 }
 
-function Install-WingetPackage {
+function Get-VerifiedInstaller {
     param(
-        [Parameter(Mandatory = $true)][string]$Id,
-        [Parameter(Mandatory = $true)][string]$Version,
-        [ValidateSet("user", "machine")][string]$Scope
+        [Parameter(Mandatory = $true)][string]$Name,
+        [Parameter(Mandatory = $true)][string]$Uri,
+        [Parameter(Mandatory = $true)][string]$Sha256,
+        [Parameter(Mandatory = $true)][string]$FileName
     )
 
-    $listOutput = & winget.exe list `
-        --id $Id `
-        --exact `
-        --accept-source-agreements `
-        --disable-interactivity 2>&1
-    $listText = $listOutput -join "`n"
-    $packagePattern = "(?m)\s$([regex]::Escape($Id))\s+$([regex]::Escape($Version))(?:\s|$)"
-    if ($LASTEXITCODE -eq 0 -and $listText -match $packagePattern) {
-        Write-Host "$Id $Version is already installed."
-        return
-    }
-    if ($LASTEXITCODE -eq 0 -and $listText -match "\s$([regex]::Escape($Id))\s+") {
-        throw "$Id is installed at a version other than required $Version"
+    $downloadRoot = Join-Path $PSScriptRoot "packages"
+    $installer = Join-Path $downloadRoot $FileName
+    $partial = "$installer.partial"
+    New-Item -ItemType Directory -Force -Path $downloadRoot | Out-Null
+    Remove-Item -LiteralPath $partial -Force -ErrorAction SilentlyContinue
+
+    if (Test-Path -LiteralPath $installer -PathType Leaf) {
+        $actualSha256 = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash
+        if ($actualSha256 -eq $Sha256) {
+            return $installer
+        }
+        Remove-Item -LiteralPath $installer -Force
     }
 
-    $arguments = @(
-        "install",
-        "--id", $Id,
-        "--exact",
-        "--version", $Version,
-        "--silent",
-        "--accept-source-agreements",
-        "--accept-package-agreements",
-        "--disable-interactivity"
-    )
-    if ($Scope) {
-        $arguments += @("--scope", $Scope)
+    Write-Host "Downloading $Name from $Uri"
+    Invoke-WebRequest -UseBasicParsing -Uri $Uri -OutFile $partial
+    $actualSha256 = (Get-FileHash -LiteralPath $partial -Algorithm SHA256).Hash
+    if ($actualSha256 -ne $Sha256) {
+        Remove-Item -LiteralPath $partial -Force
+        throw "$Name checksum mismatch: expected $Sha256, got $actualSha256"
     }
-    Invoke-External winget.exe $arguments
+    Move-Item -LiteralPath $partial -Destination $installer
+    return $installer
 }
 
 function Grant-BatchLogonRight {
@@ -151,11 +160,48 @@ if ($workerPassword -notmatch "^[0-9a-f]{48}$") {
 }
 
 try {
-    Install-WingetPackage "StablyAI.Orca" $orcaVersion "user"
-    Install-WingetPackage "Git.Git" $gitVersion "machine"
-    Install-WingetPackage "OpenJS.NodeJS.LTS" $nodeVersion "machine"
-    Install-WingetPackage "Python.Python.3.13" $pythonVersion "machine"
-    Install-WingetPackage "GitHub.cli" $githubCliVersion "machine"
+    $orcaInstaller = Get-VerifiedInstaller `
+        -Name "Orca $orcaVersion" `
+        -Uri $orcaInstallerUrl `
+        -Sha256 $orcaInstallerSha256 `
+        -FileName "orca-windows-setup.exe"
+    $gitInstaller = Get-VerifiedInstaller `
+        -Name "Git $gitVersion" `
+        -Uri $gitInstallerUrl `
+        -Sha256 $gitInstallerSha256 `
+        -FileName "git-setup.exe"
+    $nodeInstaller = Get-VerifiedInstaller `
+        -Name "Node.js $nodeVersion" `
+        -Uri $nodeInstallerUrl `
+        -Sha256 $nodeInstallerSha256 `
+        -FileName "node-setup.msi"
+    $pythonInstaller = Get-VerifiedInstaller `
+        -Name "Python $pythonVersion" `
+        -Uri $pythonInstallerUrl `
+        -Sha256 $pythonInstallerSha256 `
+        -FileName "python-setup.exe"
+    $githubCliInstaller = Get-VerifiedInstaller `
+        -Name "GitHub CLI $githubCliVersion" `
+        -Uri $githubCliInstallerUrl `
+        -Sha256 $githubCliInstallerSha256 `
+        -FileName "github-cli-setup.msi"
+
+    Invoke-External $orcaInstaller @("/S")
+    Invoke-External $gitInstaller @(
+        "/SP-",
+        "/VERYSILENT",
+        "/SUPPRESSMSGBOXES",
+        "/NORESTART",
+        "/ALLUSERS"
+    )
+    Invoke-External msiexec.exe @("/i", $nodeInstaller, "/qn", "/norestart")
+    Invoke-External $pythonInstaller @(
+        "/quiet",
+        "InstallAllUsers=1",
+        "PrependPath=1",
+        "Include_test=0"
+    )
+    Invoke-External msiexec.exe @("/i", $githubCliInstaller, "/qn", "/norestart")
 
     $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
     $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
