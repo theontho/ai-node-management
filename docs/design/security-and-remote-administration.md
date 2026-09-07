@@ -77,6 +77,19 @@ Do not:
 Download and inspect or verify artifacts as an unprivileged identity before an
 intentional privileged installation step.
 
+### Why Linux downloaded code is not elevated by default
+
+Passwordless sudo belongs to the Linux host maintenance account, not to the
+resident Orca runtime. Orca and its child processes run as a non-root user in a
+capability-dropped container without the host Docker socket, the maintainer's
+SSH credentials, or a host sudo path. Downloaded scripts, dependencies,
+repository hooks, builds, and tests therefore cannot administer the host merely
+because the separate maintenance account can use sudo.
+
+This is a security-boundary property, not special trust detection in sudo. Code
+run directly in a maintenance shell would inherit that shell's ability to call
+passwordless sudo and must be treated as trusted.
+
 ## Windows SSH administration
 
 Windows OpenSSH Server reads `%ProgramData%\ssh\sshd_config`. For users in the
@@ -137,6 +150,31 @@ boot task runs at the highest level. Agent terminals can therefore administer
 the host without an interactive UAC prompt. Only trusted code should run in
 that environment; downloaded scripts, dependencies, hooks, and project tasks
 have the same ability to change the Windows host.
+
+### Windows equivalent of the Linux boundary
+
+Windows can provide the same default-unprivileged behavior, but not by exposing
+an unrestricted passwordless elevation command to the standard worker. Any
+downloaded process running as that worker could invoke the same command.
+Windows `sudo`, `runas`, unrestricted scheduled-task wrappers, and general
+privileged brokers do not solve that confused-deputy problem.
+
+The practical equivalent is two separate execution contexts:
+
+| Context | Identity and authority | Intended work |
+| --- | --- | --- |
+| Standard Orca environment | Non-administrator worker | Repositories, downloaded code, dependencies, hooks, builds, and tests |
+| Administrative maintenance environment | Separate administrator with an elevated token | Deliberate host configuration and repair |
+
+The administrative environment should use separate state and workspaces so
+the standard worker cannot plant content that is later executed with elevated
+authority. It may be started deliberately and stopped automatically after a
+bounded maintenance window. This design preserves convenient unattended
+administration without granting every normal Orca child process administrator
+rights.
+
+The current Windows deployment does not yet implement this split. Its
+always-elevated `orca-worker` favors maximum agent capability over isolation.
 
 ## Routine and consequential maintenance
 

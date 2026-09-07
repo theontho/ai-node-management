@@ -12,9 +12,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
+import yaml
+
 
 RUNTIME_SYSTEM_TOKEN = "AI_NODE_RUNTIME_SYSTEM_DISK"
-RUNTIME_DATA_STORAGE_MARKER = "# AI_NODE_RUNTIME_DATA_STORAGE"
 AUTO_ALLOWED_TRANSPORTS = {
     "ata",
     "mmc",
@@ -237,7 +238,6 @@ def choose_explicit(candidates: list[Disk], configured_path: str, role: str) -> 
 def select_disks(
     candidates: list[Disk],
     system_policy: str,
-    data_policy: str,
     preferred_min_bytes: int,
     minimum_system_bytes: int,
 ) -> tuple[Disk, list[Disk]]:
@@ -253,52 +253,60 @@ def select_disks(
                 f"minimum required {minimum_system_bytes} bytes"
             )
 
-    data: list[Disk] = []
     remaining = [disk for disk in candidates if disk.path != system.path]
-    if data_policy == "auto":
-        data = sorted(
-            (disk for disk in remaining if _safe_automatic(disk)),
-            key=lambda disk: disk.path,
-        )
-    elif data_policy:
-        data = [choose_explicit(remaining, data_policy, "data")]
+    data = sorted(
+        (disk for disk in remaining if _safe_automatic(disk)),
+        key=lambda disk: disk.path,
+    )
     return system, data
 
 
-def render_data_storage(disks: list[Disk], mount_root: str) -> str:
-    blocks = []
+def data_storage_config(
+    disks: list[Disk], mount_root: str
+) -> list[dict[str, Any]]:
+    config = []
     for index, disk in enumerate(disks, 1):
         suffix = "" if index == 1 else str(index)
         disk_id = f"disk-data-{index}"
         partition_id = f"partition-data-{index}"
         format_id = f"format-data-{index}"
-        blocks.append(
-            f"""      - type: disk
-        id: {disk_id}
-        path: {json.dumps(disk.path)}
-        ptable: gpt
-        wipe: superblock-recursive
-        preserve: false
-        grub_device: false
-      - type: partition
-        id: {partition_id}
-        device: {disk_id}
-        size: -1
-        number: 1
-        preserve: false
-        wipe: superblock
-      - type: format
-        id: {format_id}
-        volume: {partition_id}
-        fstype: ext4
-        label: ai-data-{index}
-        preserve: false
-      - type: mount
-        id: mount-data-{index}
-        device: {format_id}
-        path: {json.dumps(f"{mount_root}{suffix}")}"""
+        config.extend(
+            [
+                {
+                    "type": "disk",
+                    "id": disk_id,
+                    "path": disk.path,
+                    "ptable": "gpt",
+                    "wipe": "superblock-recursive",
+                    "preserve": False,
+                    "grub_device": False,
+                },
+                {
+                    "type": "partition",
+                    "id": partition_id,
+                    "device": disk_id,
+                    "size": -1,
+                    "number": 1,
+                    "preserve": False,
+                    "wipe": "superblock",
+                },
+                {
+                    "type": "format",
+                    "id": format_id,
+                    "volume": partition_id,
+                    "fstype": "ext4",
+                    "label": f"ai-data-{index}",
+                    "preserve": False,
+                },
+                {
+                    "type": "mount",
+                    "id": f"mount-data-{index}",
+                    "device": format_id,
+                    "path": f"{mount_root}{suffix}",
+                },
+            ]
         )
-    return "\n".join(blocks)
+    return config
 
 
 def rewrite_autoinstall(
@@ -308,27 +316,60 @@ def rewrite_autoinstall(
     data_mount: str,
 ) -> None:
     text = path.read_text(encoding="utf-8")
-    system_line = f'        path: "{RUNTIME_SYSTEM_TOKEN}"'
-    if text.count(system_line) != 1:
+    try:
+        document = yaml.safe_load(text)
+    except yaml.YAMLError as error:
+        raise SelectionError(f"autoinstall document is invalid YAML: {error}") from error
+    if not isinstance(document, dict):
+        raise SelectionError("autoinstall document must be a mapping")
+    autoinstall = document.get("autoinstall", document)
+    if not isinstance(autoinstall, dict):
+        raise SelectionError("autoinstall configuration must be a mapping")
+    storage = autoinstall.get("storage")
+    if not isinstance(storage, dict):
+        raise SelectionError("autoinstall storage configuration is missing")
+    config = storage.get("config")
+    if not isinstance(config, list):
+        raise SelectionError("autoinstall storage config must be a list")
+
+    system_entries = [
+        entry
+        for entry in config
+        if isinstance(entry, dict)
+        and entry.get("type") == "disk"
+        and entry.get("path") == RUNTIME_SYSTEM_TOKEN
+    ]
+    if len(system_entries) != 1:
         raise SelectionError(
             f"autoinstall document must contain exactly one {RUNTIME_SYSTEM_TOKEN}"
         )
-    text = text.replace(system_line, f'        path: "{system.path}"')
-    expected_data_markers = (
-        1 if data or RUNTIME_DATA_STORAGE_MARKER in text else 0
-    )
-    if text.count(RUNTIME_DATA_STORAGE_MARKER) != expected_data_markers:
+    system_entries[0]["path"] = system.path
+
+    additions = data_storage_config(data, data_mount)
+    existing_ids = {
+        entry.get("id")
+        for entry in config
+        if isinstance(entry, dict) and isinstance(entry.get("id"), str)
+    }
+    addition_ids = {
+        entry["id"]
+        for entry in additions
+        if isinstance(entry.get("id"), str)
+    }
+    collisions = existing_ids & addition_ids
+    if collisions:
         raise SelectionError(
-            f"autoinstall document must contain {expected_data_markers} "
-            f"{RUNTIME_DATA_STORAGE_MARKER} marker(s)"
+            "autoinstall data storage IDs already exist: "
+            + ", ".join(sorted(collisions))
         )
-    if RUNTIME_DATA_STORAGE_MARKER in text:
-        text = text.replace(
-            RUNTIME_DATA_STORAGE_MARKER,
-            render_data_storage(data, data_mount),
-        )
+    config.extend(additions)
+
+    rendered = yaml.safe_dump(document, sort_keys=False)
+    if text.startswith("#cloud-config"):
+        rendered = "#cloud-config\n" + rendered
     temporary = path.with_name(f"{path.name}.diskselector")
-    temporary.write_text(text, encoding="utf-8")
+    temporary.write_text(rendered, encoding="utf-8")
+    temporary.chmod(path.stat().st_mode)
     temporary.replace(path)
 
 
@@ -359,7 +400,6 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--autoinstall", required=True, type=Path)
     parser.add_argument("--system-policy", required=True)
-    parser.add_argument("--data-policy", default="")
     parser.add_argument("--preferred-min-bytes", required=True, type=int)
     parser.add_argument("--minimum-system-bytes", required=True, type=int)
     parser.add_argument("--data-mount", default="/data")
@@ -378,7 +418,6 @@ def main() -> int:
         system, data = select_disks(
             candidates,
             args.system_policy,
-            args.data_policy,
             args.preferred_min_bytes,
             args.minimum_system_bytes,
         )

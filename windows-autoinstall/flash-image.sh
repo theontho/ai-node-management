@@ -62,5 +62,4 @@ if [[ "$flashed_sha256" != "$image_sha256" ]]; then
   echo "flashed media verification failed" >&2
   exit 1
 fi
-diskutil eject "$device"
-echo "Flashed, verified, and ejected $device."
+echo "Flashed and verified $device; media remains attached."

@@ -70,5 +70,4 @@ fi
 
 flashed_sha256=$(cat "$report")
 [[ "$flashed_sha256" == "$image_sha256" ]]
-diskutil eject "$device"
-echo "Flashed, verified, and ejected $device."
+echo "Flashed and verified $device; media remains attached."

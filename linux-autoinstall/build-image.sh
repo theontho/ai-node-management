@@ -55,6 +55,10 @@ fi
   echo "output and recovery report must be different files" >&2
   exit 1
 }
+[[ ! -e "$recovery_report" ]] || {
+  echo "recovery report already exists; refusing to overwrite: $recovery_report" >&2
+  exit 1
+}
 
 for command_name in ar openssl python3 shasum ssh-keygen tar xorriso; do
   command -v "$command_name" >/dev/null || {
@@ -71,7 +75,6 @@ NODE_NAME_PREFIX=$(config_get NODE_NAME_PREFIX)
 ADMIN_USER=$(config_get ADMIN_USER)
 TIMEZONE=$(config_get TIMEZONE)
 SYSTEM_DISK=$(config_get SYSTEM_DISK)
-DATA_DISK=$(config_get DATA_DISK)
 DATA_MOUNT=$(config_get DATA_MOUNT)
 PREFERRED_MIN_TARGET_DISK_BYTES=$(config_get PREFERRED_MIN_TARGET_DISK_BYTES)
 SWAP_SIZE_GIB=$(config_get SWAP_SIZE_GIB)
@@ -206,6 +209,8 @@ for asset in \
   install -m 0644 "$SCRIPT_DIR/assets/$asset" "$seed/assets/$asset"
 done
 install -m 0755 "$SCRIPT_DIR/assets/configure-swap" "$seed/assets/configure-swap"
+install -m 0755 "$SCRIPT_DIR/configure-wifi.py" \
+  "$seed/assets/configure-wifi.py"
 install -m 0755 "$SCRIPT_DIR/diskselector.py" "$seed/assets/diskselector.py"
 install -m 0755 "$SCRIPT_DIR/assets/enroll-tailscale" \
   "$seed/assets/enroll-tailscale"
@@ -247,11 +252,9 @@ for source, destination in (
 PY
 chmod 0440 "$seed/assets/admin-sudoers"
 chmod 0644 "$seed/assets/ssh-access.conf" "$seed/assets/debconf-selections"
-health_data_mount=
-[[ -z "$DATA_DISK" ]] || health_data_mount=$DATA_MOUNT
 python3 - "$SCRIPT_DIR/assets/render-console-health" \
   "$seed/assets/render-console-health" \
-  "$health_data_mount" <<'PY'
+  "$DATA_MOUNT" <<'PY'
 from pathlib import Path
 import shlex
 import sys
@@ -293,7 +296,6 @@ render_args=(
   --admin-user "$ADMIN_USER"
   --timezone "$TIMEZONE"
   --system-disk-policy "$SYSTEM_DISK"
-  --data-disk-policy "$DATA_DISK"
   --data-mount "$DATA_MOUNT"
   --preferred-min-target-disk-bytes "$PREFERRED_MIN_TARGET_DISK_BYTES"
   --minimum-system-disk-bytes "$MINIMUM_SYSTEM_DISK_BYTES"
@@ -328,7 +330,7 @@ set menu_color_highlight=black/light-gray
 
 menuentry "Install $NODE_NAME_PREFIX node (ERASES SELECTED INTERNAL DISKS)" {
     set gfxpayload=keep
-    linux /casper/vmlinuz autoinstall ds=nocloud\\;s=file:///cdrom/nocloud/ ---
+    linux /casper/vmlinuz autoinstall noprompt ds=nocloud\\;s=file:///cdrom/nocloud/ ---
     initrd /casper/initrd
 }
 menuentry "Boot installed $NODE_NAME_PREFIX node" {
@@ -348,7 +350,7 @@ fi
 
 menuentry "Install $NODE_NAME_PREFIX node (ERASES SELECTED INTERNAL DISKS)" {
     set gfxpayload=keep
-    linux /casper/vmlinuz iso-scan/filename=\${iso_path} autoinstall ds=nocloud\\;s=file:///cdrom/nocloud/ ---
+    linux /casper/vmlinuz iso-scan/filename=\${iso_path} autoinstall noprompt ds=nocloud\\;s=file:///cdrom/nocloud/ ---
     initrd /casper/initrd
 }
 menuentry "Boot installed $NODE_NAME_PREFIX node" {
@@ -402,13 +404,7 @@ image_sha256=$(shasum -a 256 "$output_tmp" | awk '{print $1}')
   echo "SSH public-key fingerprint: $ssh_fingerprint"
   echo
   echo "System disk policy: $SYSTEM_DISK"
-  if [[ "$DATA_DISK" == "auto" ]]; then
-    echo "Data disk policy: all eligible secondary disks mounted at $DATA_MOUNT, ${DATA_MOUNT}2, ..."
-  elif [[ -n "$DATA_DISK" ]]; then
-    echo "Data disk policy: $DATA_DISK mounted at $DATA_MOUNT"
-  else
-    echo "Data disk policy: preserve all secondary disks"
-  fi
+  echo "Data disk policy: all eligible secondary disks mounted at $DATA_MOUNT, ${DATA_MOUNT}2, ..."
   if [[ "$wifi_enabled" == "true" ]]; then
     echo "Wi-Fi: embedded profile enabled"
   else
@@ -424,7 +420,8 @@ image_sha256=$(shasum -a 256 "$output_tmp" | awk '{print $1}')
 } > "$report_tmp"
 chmod 0600 "$report_tmp"
 
-mv -f "$report_tmp" "$recovery_report"
+ln "$report_tmp" "$recovery_report"
+rm -f "$report_tmp"
 report_tmp=
 mv -f "$output_tmp" "$output"
 output_tmp=

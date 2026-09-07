@@ -54,9 +54,7 @@ render "$work/ethernet.yaml"
 render "$work/wifi.yaml" \
   --wifi-ssid-file "$work/wifi-ssid" \
   --wifi-password-file "$work/wifi-password"
-render "$work/dual.yaml" \
-  --data-disk-policy auto \
-  --data-mount /srv/data
+render "$work/dual.yaml" --data-mount /srv/data
 render "$work/fallback.yaml" --interactive-storage
 render "$work/adversarial.yaml" \
   --wifi-ssid-file "$work/adversarial-wifi-ssid" \
@@ -103,8 +101,8 @@ if "AI_NODE_WIFI_INTERFACE" not in wifi or "Validation Network" not in wifi:
 if "/tmp/60-ai-node-wifi.yaml" not in wifi or "wpasupplicant" not in wifi:
     raise SystemExit("wifi: persistent Wi-Fi setup missing")
 
-if "# AI_NODE_RUNTIME_DATA_STORAGE" not in dual or "disk-data" in dual:
-    raise SystemExit("dual: automatic data-disk configuration missing")
+if "AI_NODE_RUNTIME_DATA_STORAGE" in dual or "disk-data" in dual:
+    raise SystemExit("dual: data-disk configuration must be added at runtime")
 if "--data-mount /srv/data" not in dual:
     raise SystemExit("dual: data-mount policy missing")
 
@@ -127,6 +125,7 @@ PYTHONPYCACHEPREFIX="$work/pycache" python3 - \
   "$work/dual-runtime.yaml" <<'PY'
 from pathlib import Path
 import sys
+import yaml
 
 sys.path.insert(0, sys.argv[1])
 from diskselector import Disk, rewrite_autoinstall
@@ -147,20 +146,34 @@ def disk(path):
 
 
 path = Path(sys.argv[2])
+# Reproduce Subiquity's parse-and-dump normalization before early commands.
+path.write_text(
+    yaml.safe_dump(yaml.safe_load(path.read_text()), sort_keys=False)
+)
 rewrite_autoinstall(
     path,
     disk("/dev/nvme0n1"),
     [disk("/dev/sda"), disk("/dev/sdb")],
     "/srv/data",
 )
-text = path.read_text()
-assert 'path: "/dev/nvme0n1"' in text
-assert 'path: "/dev/sda"' in text
-assert 'path: "/dev/sdb"' in text
-assert 'path: "/srv/data"' in text
-assert 'path: "/srv/data2"' in text
-assert "AI_NODE_RUNTIME_SYSTEM_DISK" not in text
-assert "AI_NODE_RUNTIME_DATA_STORAGE" not in text
+document = yaml.safe_load(path.read_text())
+config = document["autoinstall"]["storage"]["config"]
+disks = {
+    entry["id"]: entry["path"]
+    for entry in config
+    if entry["type"] == "disk"
+}
+mounts = {
+    entry["id"]: entry["path"]
+    for entry in config
+    if entry["type"] == "mount"
+}
+assert disks["disk-system"] == "/dev/nvme0n1"
+assert disks["disk-data-1"] == "/dev/sda"
+assert disks["disk-data-2"] == "/dev/sdb"
+assert mounts["mount-data-1"] == "/srv/data"
+assert mounts["mount-data-2"] == "/srv/data2"
+assert "AI_NODE_RUNTIME_SYSTEM_DISK" not in path.read_text()
 PY
 
 generated_password=$(
@@ -235,10 +248,36 @@ if grep -Fq 'Requires=tailscaled.service' \
   exit 1
 fi
 grep -Fq 'generate-password.py' "$SCRIPT_DIR/build-image.sh"
+[[ "$(grep -c 'autoinstall noprompt' "$SCRIPT_DIR/build-image.sh")" -eq 2 ]]
+grep -Fq 'recovery report already exists; refusing to overwrite' \
+  "$SCRIPT_DIR/build-image.sh"
+grep -Fq 'ln "$report_tmp" "$recovery_report"' \
+  "$SCRIPT_DIR/build-image.sh"
 grep -Fq 'config.py" validate' "$SCRIPT_DIR/build-image.sh"
 grep -Fq -- '--tailscale-deb FILE' "$SCRIPT_DIR/build-image.sh"
 grep -Fq 'wifi_enabled=false' "$SCRIPT_DIR/build-image.sh"
 grep -Fq 'diskselector.py' "$SCRIPT_DIR/build-image.sh"
+grep -Fq 'configure-wifi.py' "$SCRIPT_DIR/build-image.sh"
+grep -Fq -- '--persistent-output /tmp/60-ai-node-wifi.yaml' \
+  "$SCRIPT_DIR/render-autoinstall.py"
+if grep -R -Fq 'DATA_DISK' \
+  "$SCRIPT_DIR/config.py" \
+  "$SCRIPT_DIR/config.example.env" \
+  "$SCRIPT_DIR/build-image.sh" \
+  "$SCRIPT_DIR/render-autoinstall.py" \
+  "$SCRIPT_DIR/README.md"; then
+  echo "Linux installer still exposes a secondary-disk preservation policy" >&2
+  exit 1
+fi
+if grep -Fq -- '--data-policy' "$SCRIPT_DIR/diskselector.py"; then
+  echo "Linux disk selector still accepts a secondary-disk policy" >&2
+  exit 1
+fi
+grep -Fq 'media remains attached' "$SCRIPT_DIR/flash-image.sh"
+if grep -Fq 'diskutil eject' "$SCRIPT_DIR/flash-image.sh"; then
+  echo "Linux flasher still ejects media automatically" >&2
+  exit 1
+fi
 grep -Fq 'Package:[[:space:]]+tailscale' "$SCRIPT_DIR/build-image.sh"
 grep -Fq 'Architecture:[[:space:]]+amd64' "$SCRIPT_DIR/build-image.sh"
 grep -Fq 'apt-get install -y /tmp/tailscale.deb' \
@@ -258,6 +297,8 @@ grep -Fq 'self.brightness_path.write_text("0\n")' \
 grep -Fq 'INPUT_KEYWORDS = ("keyboard", "mouse", "touchpad", "hotkeys")' \
   "$SCRIPT_DIR/assets/manage-console-backlight"
 grep -Fq 'ai-node-console-power.service' "$SCRIPT_DIR/autoinstall.yaml.in"
+grep -Fq 'ConditionDirectoryNotEmpty=/sys/class/backlight' \
+  "$SCRIPT_DIR/assets/ai-node-console-power.service"
 
 if command -v ruby >/dev/null 2>&1; then
   ruby -e 'require "yaml"; ARGV.each { |path| YAML.safe_load(File.read(path), aliases: true) }' \

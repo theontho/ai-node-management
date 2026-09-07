@@ -9,7 +9,7 @@ The installer:
 
 - safely selects an internal system disk or validates an explicit whole-disk
   path, excluding the installer and removable media;
-- by default erases, formats, and persistently mounts every remaining eligible
+- erases, formats, and persistently mounts every remaining eligible
   internal disk as empty data storage;
 - installs Ubuntu Server with US English locale and keyboard settings;
 - generates a memorable `prefix-adjective-noun` hostname for each installation;
@@ -25,8 +25,9 @@ The installer:
 - powers down the physical LCD backlight after a configurable idle period and
   restores it on keyboard, touchpad, mouse, or hardware-hotkey activity;
 - displays a physical-console-only health banner refreshed every minute; and
-- writes an EFI completion marker so a still-attached USB defaults to booting
-  the installed system instead of reinstalling it.
+- writes an EFI completion marker and suppresses the live-media removal prompt
+  so a still-attached USB reboots into the installed system instead of pausing
+  or reinstalling.
 
 ## Destructive scope
 
@@ -45,19 +46,19 @@ ranking. Explicit targets must still be non-removable, writable, and distinct
 from the installer media. An explicitly named non-removable USB disk is
 allowed, while automatic selection never chooses USB.
 
-`DATA_DISK=auto`, the default, erases every eligible disk remaining after
-system-disk selection, creates one ext4 filesystem on each, and mounts them
-persistently through Curtin-generated `fstab` entries. Mount paths are
-`DATA_MOUNT`, `DATA_MOUNT2`, `DATA_MOUNT3`, and so on; with the default they
-are `/data`, `/data2`, `/data3`, and so on. Ordering is deterministic by Linux
-device path. `DATA_DISK=` preserves every non-system disk, while an explicit
-whole-disk path manages only that disk.
+Every eligible disk remaining after system-disk selection is always erased,
+given one ext4 filesystem, and mounted persistently through Curtin-generated
+`fstab` entries. Mount paths are `DATA_MOUNT`, `DATA_MOUNT2`, `DATA_MOUNT3`,
+and so on; with the default they are `/data`, `/data2`, `/data3`, and so on.
+Ordering is deterministic by Linux device path. There is no preservation or
+single-secondary-disk mode. Existing partitions, filesystems, encryption,
+labels, and installed operating systems do not affect eligibility.
 
-Automatic secondary-disk selection uses the same strict safety filter as
-automatic system-disk selection. Unsafe disks are skipped rather than erased.
-If system-disk selection or an explicit data-disk selection cannot be
-completed safely, the generated storage plan is discarded and Subiquity opens
-its interactive storage screen instead of guessing.
+Secondary-disk selection uses the same strict safety filter as automatic
+system-disk selection. Unsafe disks are skipped rather than erased. If safe
+system-disk selection cannot be completed, the generated storage plan is
+discarded and Subiquity opens its interactive storage screen instead of
+guessing.
 
 Disconnect storage that must survive. Automatic ranking reduces
 hardware-specific configuration, but any eligible internal disk selected by
@@ -79,7 +80,6 @@ NODE_NAME_PREFIX=lin
 ADMIN_USER=node-admin
 TIMEZONE=Etc/UTC
 SYSTEM_DISK=auto
-DATA_DISK=auto
 DATA_MOUNT=/data
 PREFERRED_MIN_TARGET_DISK_BYTES=60000000000
 SWAP_SIZE_GIB=16
@@ -99,7 +99,8 @@ requirements say otherwise.
 `CONSOLE_IDLE_SECONDS` accepts 10 through 3600. The backlight daemon directly
 controls the first Linux backlight device and listens to input events without
 consuming them. It affects only the LCD; the CPU, networking, SSH, containers,
-and server workloads remain awake.
+and server workloads remain awake. On hardware without a kernel backlight
+device, systemd skips the service without treating that as a failure.
 
 `SWAP_SIZE_GIB` accepts 1 through 1024. Its value contributes to the hard
 minimum system-disk capacity check.
@@ -146,6 +147,7 @@ checksums. The builder also verifies the package name and architecture from the
 DEB control metadata.
 
 ```bash
+generation=$(date -u +%Y%m%dT%H%M%SZ)
 ./build-image.sh \
   --base-iso ./local/ubuntu-server-amd64.iso \
   --base-sha256 OFFICIAL_64_CHARACTER_SHA256 \
@@ -153,8 +155,8 @@ DEB control metadata.
   --private-dir ./local/private \
   --tailscale-deb ./local/tailscale_VERSION_amd64.deb \
   --tailscale-sha256 OFFICIAL_TAILSCALE_64_CHARACTER_SHA256 \
-  --output ./output/ai-node-linux.iso \
-  --recovery-report ./output/ai-node-linux-recovery.txt
+  --output "./output/ai-node-linux-$generation.iso" \
+  --recovery-report "./output/ai-node-linux-$generation-recovery.txt"
 ```
 
 The builder verifies the source ISO and Tailscale package checksums, validates
@@ -163,6 +165,9 @@ all configuration and private inputs, writes outputs atomically with mode
 for byte-for-byte verification. The recovery report records the generated
 password, hostname pattern, SSH key fingerprint, storage policies, network
 mode, package checksum, and media checksum.
+The builder atomically refuses to overwrite an existing recovery report.
+Use a distinct generation value for every rebuilt stick so older recovery
+credentials and their corresponding image checksums remain available.
 
 The ISO and recovery report contain credentials. Never publish either.
 
@@ -180,7 +185,9 @@ sudo ./grant-sudo-one-hour.sh "$(id -un)"
 ```
 
 The disk number is only an example. The flasher rejects internal and
-non-removable devices, verifies every written byte, and ejects the USB.
+non-removable devices and verifies every written byte. It deliberately leaves
+the USB attached; eject it separately only when development and verification
+are complete.
 
 After installation:
 
@@ -192,6 +199,6 @@ Use the hostname shown on the physical console or discover the node through
 mDNS or the Tailscale admin console before replacing the pattern above.
 
 The optional Orca stage remains under [`../orca-node`](../orca-node). Its
-Tailscale sidecar is a separate service-plane identity used to expose only
-Orca's network namespace; the host installation described here supplies the
-independent maintenance-plane Tailscale identity.
+container uses the host's Tailscale identity and binds Orca only to that
+tailnet address; it does not contain a Tailscale sidecar, key, state, or TUN
+device.

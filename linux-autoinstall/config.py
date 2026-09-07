@@ -12,7 +12,6 @@ from typing import Dict
 REQUIRED_KEYS = {
     "ADMIN_USER",
     "CONSOLE_IDLE_SECONDS",
-    "DATA_DISK",
     "DATA_MOUNT",
     "NODE_NAME_PREFIX",
     "PREFERRED_MIN_TARGET_DISK_BYTES",
@@ -21,7 +20,6 @@ REQUIRED_KEYS = {
     "SYSTEM_DISK",
     "TIMEZONE",
 }
-ALLOW_EMPTY = {"DATA_DISK"}
 DISK_PATH_RE = re.compile(r"/dev/[A-Za-z0-9._/+:-]+")
 
 
@@ -29,9 +27,7 @@ class ConfigError(ValueError):
     """Raised when local configuration is unsafe or incomplete."""
 
 
-def _validate_disk_policy(key: str, value: str, allow_empty: bool = False) -> None:
-    if allow_empty and not value:
-        return
+def _validate_disk_policy(key: str, value: str) -> None:
     if value == "auto":
         return
     if not DISK_PATH_RE.fullmatch(value):
@@ -64,13 +60,6 @@ def _validate(config: Dict[str, str]) -> None:
         raise ConfigError("TIMEZONE must name an installed IANA timezone")
 
     _validate_disk_policy("SYSTEM_DISK", config["SYSTEM_DISK"])
-    _validate_disk_policy("DATA_DISK", config["DATA_DISK"], allow_empty=True)
-    if (
-        config["SYSTEM_DISK"] != "auto"
-        and config["DATA_DISK"] not in {"", "auto"}
-        and config["SYSTEM_DISK"] == config["DATA_DISK"]
-    ):
-        raise ConfigError("DATA_DISK must differ from SYSTEM_DISK")
 
     data_mount = config["DATA_MOUNT"]
     if (
@@ -127,7 +116,7 @@ def load_config(path: Path) -> Dict[str, str]:
             raise ConfigError(f"{path}:{line_number}: unknown setting {key!r}")
         if key in config:
             raise ConfigError(f"{path}:{line_number}: duplicate setting {key!r}")
-        if not value and key not in ALLOW_EMPTY:
+        if not value:
             raise ConfigError(f"{path}:{line_number}: {key} must not be empty")
         config[key] = value
 

@@ -6,14 +6,7 @@ import shlex
 from pathlib import Path
 
 
-def render_data_storage(data_disk: str, data_mount: str) -> str:
-    if not data_disk:
-        return ""
-    return "# AI_NODE_RUNTIME_DATA_STORAGE"
-
-
-def render_storage(data_disk: str, data_mount: str) -> str:
-    data_storage = render_data_storage(data_disk, data_mount)
+def render_storage() -> str:
     return f"""  storage:
     swap:
       size: 0
@@ -68,8 +61,7 @@ def render_storage(data_disk: str, data_mount: str) -> str:
       - type: mount
         id: mount-root
         device: format-root
-        path: /
-{data_storage}"""
+        path: /"""
 
 
 def render_wifi(args: argparse.Namespace) -> tuple[str, str, str, str]:
@@ -105,24 +97,10 @@ def render_wifi(args: argparse.Namespace) -> tuple[str, str, str, str]:
         echo "No wireless interface was detected after 60 seconds." >&2
         exit 1
       fi
-      cat > /tmp/60-ai-node-wifi.yaml <<'EOF'
-      network:
-        version: 2
-        renderer: networkd
-        wifis:
-          "AI_NODE_WIFI_INTERFACE":
-            dhcp4: true
-            optional: false
-            access-points:
-              {ssid}:
-                password: {password}
-      EOF
-      sed -i \\
-        "s/^      \\"AI_NODE_WIFI_INTERFACE\\":/      \\"$wifi_interface\\":/" \\
-        /autoinstall.yaml
-      sed -i \\
-        "s/^        \\"AI_NODE_WIFI_INTERFACE\\":/        \\"$wifi_interface\\":/" \\
-        /tmp/60-ai-node-wifi.yaml"""
+      /cdrom/nocloud/assets/configure-wifi.py \\
+        --autoinstall /autoinstall.yaml \\
+        --persistent-output /tmp/60-ai-node-wifi.yaml \\
+        --interface "$wifi_interface" """
     network = f"""    wifis:
       "AI_NODE_WIFI_INTERFACE":
         dhcp4: true
@@ -151,14 +129,13 @@ def render(args: argparse.Namespace) -> str:
       if ! /cdrom/nocloud/assets/diskselector.py \\
         --autoinstall /autoinstall.yaml \\
         --system-policy {shlex.quote(args.system_disk_policy)} \\
-        --data-policy {shlex.quote(args.data_disk_policy)} \\
         --preferred-min-bytes {args.preferred_min_target_disk_bytes} \\
         --minimum-system-bytes {args.minimum_system_disk_bytes} \\
         --data-mount {shlex.quote(args.data_mount)}; then
         echo "Safe automatic disk selection failed; enabling interactive storage selection." >&2
         cp /cdrom/nocloud/storage-fallback-user-data /autoinstall.yaml
       fi"""
-        storage = render_storage(args.data_disk_policy, args.data_mount)
+        storage = render_storage()
 
     values = {
         "__INTERACTIVE_SECTIONS__": interactive_sections,
@@ -200,7 +177,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--admin-user", required=True)
     parser.add_argument("--timezone", required=True)
     parser.add_argument("--system-disk-policy", required=True)
-    parser.add_argument("--data-disk-policy", default="")
     parser.add_argument("--data-mount", default="/data")
     parser.add_argument("--preferred-min-target-disk-bytes", required=True, type=int)
     parser.add_argument("--minimum-system-disk-bytes", required=True, type=int)

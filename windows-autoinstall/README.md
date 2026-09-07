@@ -162,7 +162,9 @@ whole-disk `/dev/diskN` path and an exact confirmation tied to that same path:
 
 `flash-image.sh` refuses non-removable or internal devices, checks capacity,
 unmounts the whole disk, writes through the raw device, verifies a complete
-SHA-256 readback, and ejects it. **The selected removable disk is destroyed.**
+SHA-256 readback, and deliberately leaves the media attached. Eject it
+separately only when development and verification are complete. **The selected
+removable disk is destroyed.**
 
 ## Configure an existing Windows installation
 

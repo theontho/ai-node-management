@@ -2,6 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import yaml
+
 from diskselector import (
     Disk,
     SelectionError,
@@ -90,7 +92,7 @@ class DiskSelectorTests(unittest.TestCase):
         )
         self.assertEqual(selected.path, "/dev/mmcblk0")
 
-    def test_auto_data_uses_all_remaining_internal_disks(self) -> None:
+    def test_uses_all_remaining_internal_disks(self) -> None:
         system, data = select_disks(
             [
                 disk("/dev/nvme0n1", 128, "nvme"),
@@ -99,7 +101,6 @@ class DiskSelectorTests(unittest.TestCase):
                 disk("/dev/sdc", 2_000, "usb"),
                 disk("/dev/sdd", 2_000, "sata", hotplug=True),
             ],
-            "auto",
             "auto",
             60_000_000_000,
             32_000_000_000,
@@ -110,10 +111,9 @@ class DiskSelectorTests(unittest.TestCase):
             ["/dev/sda", "/dev/sdb"],
         )
 
-    def test_auto_data_allows_no_secondary_disks(self) -> None:
+    def test_allows_no_secondary_disks(self) -> None:
         system, data = select_disks(
             [disk("/dev/nvme0n1", 128, "nvme")],
-            "auto",
             "auto",
             60_000_000_000,
             32_000_000_000,
@@ -129,7 +129,6 @@ class DiskSelectorTests(unittest.TestCase):
                 disk("/dev/sdb", 500, "usb"),
             ],
             "/dev/sda",
-            "auto",
             60_000_000_000,
             32_000_000_000,
         )
@@ -143,7 +142,6 @@ class DiskSelectorTests(unittest.TestCase):
         selected, _ = select_disks(
             [disk("/dev/sda", 128, "usb")],
             "/dev/sda",
-            "",
             60_000_000_000,
             32_000_000_000,
         )
@@ -154,7 +152,6 @@ class DiskSelectorTests(unittest.TestCase):
             select_disks(
                 [disk("/dev/sda", 128, "usb", installer_backing=True)],
                 "/dev/sda",
-                "",
                 60_000_000_000,
                 32_000_000_000,
             )
@@ -175,7 +172,6 @@ class DiskSelectorTests(unittest.TestCase):
             select_disks(
                 [candidate],
                 "/dev/sda1",
-                "",
                 60_000_000_000,
                 32_000_000_000,
             )
@@ -185,7 +181,6 @@ class DiskSelectorTests(unittest.TestCase):
             select_disks(
                 [disk("/dev/nvme0n1", 24, "nvme")],
                 "auto",
-                "",
                 60_000_000_000,
                 32_000_000_000,
             )
@@ -265,11 +260,27 @@ class DiskSelectorTests(unittest.TestCase):
     def test_rewrites_only_expected_runtime_tokens(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "user-data"
-            path.write_text(
-                '        path: "AI_NODE_RUNTIME_SYSTEM_DISK"\n'
-                "# AI_NODE_RUNTIME_DATA_STORAGE\n",
-                encoding="utf-8",
-            )
+            document = {
+                "autoinstall": {
+                    "storage": {
+                        "config": [
+                            {
+                                "type": "disk",
+                                "id": "disk-system",
+                                "path": "AI_NODE_RUNTIME_SYSTEM_DISK",
+                            },
+                            {
+                                "type": "mount",
+                                "id": "mount-root",
+                                "device": "format-root",
+                                "path": "/",
+                            },
+                        ]
+                    }
+                }
+            }
+            # Subiquity normalizes the YAML before running early commands.
+            path.write_text(yaml.safe_dump(document, sort_keys=False))
             rewrite_autoinstall(
                 path,
                 disk("/dev/nvme0n1", 128, "nvme"),
@@ -279,21 +290,45 @@ class DiskSelectorTests(unittest.TestCase):
                 ],
                 "/data",
             )
-            rendered = path.read_text(encoding="utf-8")
-            self.assertIn('        path: "/dev/nvme0n1"', rendered)
-            self.assertIn('        path: "/dev/sdb"', rendered)
-            self.assertIn('        path: "/dev/sdc"', rendered)
-            self.assertIn('        path: "/data"', rendered)
-            self.assertIn('        path: "/data2"', rendered)
-            self.assertNotIn("AI_NODE_RUNTIME", rendered)
+            rendered = yaml.safe_load(path.read_text(encoding="utf-8"))
+            config = rendered["autoinstall"]["storage"]["config"]
+            disks = {
+                entry["id"]: entry["path"]
+                for entry in config
+                if entry["type"] == "disk"
+            }
+            mounts = {
+                entry["id"]: entry["path"]
+                for entry in config
+                if entry["type"] == "mount"
+            }
+            self.assertEqual(disks["disk-system"], "/dev/nvme0n1")
+            self.assertEqual(disks["disk-data-1"], "/dev/sdb")
+            self.assertEqual(disks["disk-data-2"], "/dev/sdc")
+            self.assertEqual(mounts["mount-data-1"], "/data")
+            self.assertEqual(mounts["mount-data-2"], "/data2")
+            self.assertNotIn(
+                "AI_NODE_RUNTIME", path.read_text(encoding="utf-8")
+            )
 
-    def test_rewrite_removes_marker_when_no_secondary_disk_exists(self) -> None:
+    def test_rewrite_adds_no_data_config_without_secondary_disks(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "user-data"
             path.write_text(
-                '        path: "AI_NODE_RUNTIME_SYSTEM_DISK"\n'
-                "# AI_NODE_RUNTIME_DATA_STORAGE\n",
-                encoding="utf-8",
+                yaml.safe_dump(
+                    {
+                        "storage": {
+                            "config": [
+                                {
+                                    "type": "disk",
+                                    "id": "disk-system",
+                                    "path": "AI_NODE_RUNTIME_SYSTEM_DISK",
+                                }
+                            ]
+                        }
+                    },
+                    sort_keys=False,
+                )
             )
             rewrite_autoinstall(
                 path,
@@ -301,10 +336,31 @@ class DiskSelectorTests(unittest.TestCase):
                 [],
                 "/data",
             )
+            rendered = yaml.safe_load(path.read_text(encoding="utf-8"))
             self.assertEqual(
-                path.read_text(encoding="utf-8"),
-                '        path: "/dev/nvme0n1"\n\n',
+                rendered["storage"]["config"],
+                [
+                    {
+                        "type": "disk",
+                        "id": "disk-system",
+                        "path": "/dev/nvme0n1",
+                    }
+                ],
             )
+
+    def test_rewrite_rejects_missing_structural_system_token(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "user-data"
+            path.write_text(
+                yaml.safe_dump({"autoinstall": {"storage": {"config": []}}})
+            )
+            with self.assertRaises(SelectionError):
+                rewrite_autoinstall(
+                    path,
+                    disk("/dev/nvme0n1", 128, "nvme"),
+                    [],
+                    "/data",
+                )
 
 
 if __name__ == "__main__":

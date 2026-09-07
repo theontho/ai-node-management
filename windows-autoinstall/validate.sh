@@ -346,6 +346,8 @@ assert 'confirmation must be exactly ERASE:$device' in flash
 assert "refusing non-removable device" in flash
 assert "refusing internal device" in flash
 assert "flashed media verification failed" in flash
+assert "media remains attached" in flash
+assert "diskutil eject" not in flash
 
 assert "/local/" in gitignore
 assert "/output/" in gitignore
